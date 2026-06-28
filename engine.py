@@ -69,3 +69,26 @@ class AISC_LRFD_Engine:
             "nominal_capacity_kips": round(nominal_capacity, 2),
             "design_capacity_kips": round(design_capacity, 2)
         }
+        
+    def calculate_base_plate_bearing(self, B, N, fc_prime):
+        """
+        คำนวณกำลังรับแรงแบกทานของคอนกรีตใต้ Base Plate ตาม AISC LRFD J8
+        B: ความกว้างแผ่นฐาน (นิ้ว)
+        N: ความยาวแผ่นฐาน (นิ้ว)
+        fc_prime: กำลังอัดของคอนกรีต (ksi) เช่น 240 ksc -> ประมาณ 3.5 ksi
+        """
+        phi_c = 0.65  # Factor สำหรับ Bearing บนคอนกรีต (LRFD)
+        
+        # พื้นที่แผ่นฐาน (A1)
+        A1 = B * N
+        
+        # สมมติฐานแบบอนุรักษ์นิยม (Conservative): พื้นที่ฐานราก (A2) = พื้นที่แผ่นฐาน (A1)
+        # สมการ: Pp = 0.85 * fc' * A1
+        nominal_capacity = 0.85 * fc_prime * A1
+        design_capacity = phi_c * nominal_capacity
+        
+        return {
+            "A1": round(A1, 2),
+            "nominal_capacity_kips": round(nominal_capacity, 2),
+            "design_capacity_kips": round(design_capacity, 2)
+        }
