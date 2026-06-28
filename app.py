@@ -76,11 +76,15 @@ with col_input:
         rec_B = math.ceil((bf + 150) / 10) * 10
         rec_N = math.ceil((d + 160) / 10) * 10
         
+        # --- [แก้ไข] ระบบจัดการเวอร์ชันของช่องกรอกข้อมูล ---
+        if "plate_version" not in st.session_state: st.session_state["plate_version"] = 0
         if "plate_B" not in st.session_state: st.session_state["plate_B"] = float(rec_B)
         if "plate_N" not in st.session_state: st.session_state["plate_N"] = float(rec_N)
         
-        B = st.number_input("กว้างเพลต B (mm)", value=st.session_state["plate_B"], key="plate_B")
-        N = st.number_input("ยาวเพลต N (mm)", value=st.session_state["plate_N"], key="plate_N")
+        # ห้อยท้าย key ด้วยเวอร์ชัน เพื่อให้รีเฟรชค่าได้อิสระ
+        B = st.number_input("กว้างเพลต B (mm)", value=st.session_state["plate_B"], key=f"B_{st.session_state['plate_version']}")
+        N = st.number_input("ยาวเพลต N (mm)", value=st.session_state["plate_N"], key=f"N_{st.session_state['plate_version']}")
+        
         tp = st.selectbox("หนาเพลต tp (mm)", THAI_PLATE_THICKNESSES, index=3)
         bolt_name = st.selectbox("เลือกขนาดสลักเกลียว", list(THAI_ANCHOR_BOLTS.keys()), index=2)
         
@@ -125,7 +129,7 @@ with col_matrix:
             fixed_matrix.at[idx, "X (mm)"] = curr_x
             fixed_matrix.at[idx, "Y (mm)"] = curr_y
             
-            # เก็บค่าตำแหน่งที่กว้างที่สุดไว้ประเมินแผ่นเพลต
+            # เก็บค่าระยะกว้างที่สุดของโบลต์ไว้คำนวณแผ่นเพลต
             max_abs_x = max(max_abs_x, abs(curr_x))
             max_abs_y = max(max_abs_y, abs(curr_y))
             
@@ -135,9 +139,10 @@ with col_matrix:
         req_B = (max_abs_x + bolt_profile["min_edge"]) * 2.0
         req_N = (max_abs_y + bolt_profile["min_edge"]) * 2.0
         
-        # ปัดเศษขึ้นให้เป็นเลขกลมๆ (หลักสิบ)
+        # --- [แก้ไข] อัปเดตค่าและขยับเวอร์ชันเพื่อหลบ Error ---
         st.session_state["plate_B"] = float(math.ceil(req_B / 10.0) * 10.0)
         st.session_state["plate_N"] = float(math.ceil(req_N / 10.0) * 10.0)
+        st.session_state["plate_version"] += 1 
         
         st.rerun()
 
