@@ -4,43 +4,33 @@ import streamlit as st
 import plotly.graph_objects as go
 
 # ================= ================= =================
-# 1. ARCHITECTURE SETUP & ENGINE FALLBACK
+# 1. CONFIGURATION & GLOBAL STYLES
 # ================= ================= =================
-try:
-    from engine import AISC_LRFD_Engine
-    engine = AISC_LRFD_Engine()
-except ImportError:
-    class AISC_LRFD_Engine:
-        def calculate_bolt_shear_capacity(self, d, g, t, p): 
-            return {"design_capacity_kips": 25.0, "A_b": 0.44, "F_nv": 54.0, "nominal_capacity_kips": 33.0}
-        def calculate_weld_capacity(self, s, l, e): 
-            return {"design_capacity_kips": 120.0, "weld_size_inch": 0.3125, "effective_throat": 0.221, "nominal_capacity_kips": 160.0}
-    engine = AISC_LRFD_Engine()
-
-st.set_page_config(page_title="AISC Load-Path Connection Wizard", layout="wide")
+st.set_page_config(page_title="AISC Professional Connection Engine", layout="wide")
 st.markdown("""
     <style>
     .reportview-container .main .block-container { padding-top: 1rem; }
     .stTable { background-color: #ffffff; border-radius: 8px; }
-    .step-box { background-color: #f1f3f6; padding: 15px; border-radius: 8px; border-left: 6px solid #1f77b4; margin-bottom: 15px; }
+    .step-box { background-color: #f8f9fa; padding: 18px; border-radius: 8px; border-left: 6px solid #004085; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .math-text { font-family: 'Courier New', Courier, monospace; color: #c7254e; background-color: #f9f2f4; padding: 2px 4px; border-radius: 4px; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏗️ AISC Load-Path Connection Wizard")
-st.caption("ระบบแนะนำและออกแบบจุดต่ออัจฉริยะตามลำดับการถ่ายแรงสากล | AISC 360-16 LRFD Compliance")
+st.title("🏗️ AISC Professional Connection Engine")
+st.caption("ระบบคำนวณจุดต่อและกลศาสตร์แผ่นฐานเสารับแรงร่วมขั้นสูง (Combined Axial, Shear, and Moment) | AISC 360-16 LRFD")
 
 # ================= ================= =================
-# 2. 3D PARAMETRIC ENGINE (STABLE VERSION)
+# 2. 3D PARAMETRIC VISUALIZATION ENGINE
 # ================= ================= =================
-def generate_load_path_base_plate_3d(B, N, tp, col_d, col_bf, num_anchors):
+def generate_advanced_load_path_3d(B, N, tp, col_d, col_bf, num_anchors, Y_length, edge_g=2.0):
     fig = go.Figure()
 
     # 1. คอนกรีตฐานราก (Pedestal)
     fig.add_trace(go.Mesh3d(
         x=[-B*0.8, B*0.8, B*0.8, -B*0.8, -B*0.8, B*0.8, B*0.8, -B*0.8],
         y=[-N*0.8, -N*0.8, N*0.8, N*0.8, -N*0.8, -N*0.8, N*0.8, N*0.8],
-        z=[-18, -18, -18, -18, 0, 0, 0, 0],
-        color='rgba(220, 220, 220, 0.4)', opacity=0.3, name='Pedestal'
+        z=[-20, -20, -20, -20, 0, 0, 0, 0],
+        color='rgba(200, 200, 200, 0.4)', opacity=0.25, name='Concrete Pedestal'
     ))
 
     # 2. แผ่นฐานเหล็ก (Base Plate)
@@ -48,211 +38,270 @@ def generate_load_path_base_plate_3d(B, N, tp, col_d, col_bf, num_anchors):
         x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2],
         y=[-N/2, -N/2, N/2, N/2, -N/2, -N/2, N/2, N/2],
         z=[0, 0, 0, 0, tp, tp, tp, tp],
-        color='steelblue', opacity=0.85, name='Base Plate'
+        color='lightslategray', opacity=0.9, name='Base Plate'
     ))
 
-    # 3. หน้าตัดเสาเหล็ก (H-Column Geometry)
+    # 3. หน้าตัดเสาเหล็ก (H-Column)
     tw, tf = 0.375, 0.50
     # Left Flange
     fig.add_trace(go.Mesh3d(x=[-col_d/2, -col_d/2+tf, -col_d/2+tf, -col_d/2, -col_d/2, -col_d/2+tf, -col_d/2+tf, -col_d/2],
                             y=[-col_bf/2, -col_bf/2, col_bf/2, col_bf/2, -col_bf/2, -col_bf/2, col_bf/2, col_bf/2],
-                            z=[tp, tp, tp, tp, tp+18, tp+18, tp+18, tp+18], color='darkslategray', name='Column'))
+                            z=[tp, tp, tp, tp, tp+20, tp+20, tp+20, tp+20], color='black', name='Steel Column'))
     # Right Flange
     fig.add_trace(go.Mesh3d(x=[col_d/2-tf, col_d/2, col_d/2, col_d/2-tf, col_d/2-tf, col_d/2, col_d/2, col_d/2-tf],
                             y=[-col_bf/2, -col_bf/2, col_bf/2, col_bf/2, -col_bf/2, -col_bf/2, col_bf/2, col_bf/2],
-                            z=[tp, tp, tp, tp, tp+18, tp+18, tp+18, tp+18], color='darkslategray', showlegend=False))
+                            z=[tp, tp, tp, tp, tp+20, tp+20, tp+20, tp+20], color='black', showlegend=False))
     # Web
     fig.add_trace(go.Mesh3d(x=[-col_d/2+tf, col_d/2-tf, col_d/2-tf, -col_d/2+tf, -col_d/2+tf, col_d/2-tf, col_d/2-tf, -col_d/2+tf],
                             y=[-tw/2, -tw/2, tw/2, tw/2, -tw/2, -tw/2, tw/2, tw/2],
-                            z=[tp, tp, tp, tp, tp+18, tp+18, tp+18, tp+18], color='darkslategray', showlegend=False))
+                            z=[tp, tp, tp, tp, tp+20, tp+20, tp+20, tp+20], color='black', showlegend=False))
 
-    # 4. แนวรอยเชื่อมฟิลเล็ต (Weld Line)
+    # 4. แนวรอยเชื่อมฟิลเล็ต (Weld Perimeter)
     fig.add_trace(go.Scatter3d(
         x=[-col_d/2, col_d/2, col_d/2, -col_d/2, -col_d/2], y=[-col_bf/2, -col_bf/2, col_bf/2, col_bf/2, -col_bf/2], z=[tp+0.1]*5,
-        mode='lines', line=dict(color='yellow', width=5), name='Fillet Weld Perimeter'
+        mode='lines', line=dict(color='yellow', width=6), name='Fillet Weld Line'
     ))
 
-    # 5. สลักเกลียวฝังแบบ Dynamic Layout
-    eg = 2.0
-    ex, ey = (B/2) - eg, (N/2) - eg
+    # 5. การจัดเรียงสลักเกลียวฝัง (Anchor Bolts)
+    ex, ey = (B/2) - edge_g, (N/2) - edge_g
     if num_anchors == 4:
         coords = [(-ex, -ey), (ex, -ey), (ex, ey), (-ex, ey)]
     elif num_anchors == 6:
         coords = [(-ex, -ey), (ex, -ey), (ex, ey), (-ex, ey), (0, -ey), (0, ey)]
-    else: # 8 ตัว
+    else:
         coords = [(-ex, -ey), (ex, -ey), (ex, ey), (-ex, ey), (0, -ey), (0, ey), (-ex, 0), (ex, 0)]
 
     for idx, (bx, by) in enumerate(coords):
         fig.add_trace(go.Scatter3d(
-            x=[bx, bx], y=[by, by], z=[-12, tp+2], mode='lines+markers',
-            marker=dict(size=4, color='crimson'), line=dict(color='crimson', width=7),
+            x=[bx, bx], y=[by, by], z=[-14, tp+2], mode='lines+markers',
+            marker=dict(size=4, color='crimson'), line=dict(color='crimson', width=6),
             name='Anchor Bolt' if idx == 0 else '', showlegend=True if idx == 0 else False
         ))
 
-    # 6. ลูกศรแสดงทิศทางแรงเวกเตอร์
-    fig.add_trace(go.Cone(x=[0], y=[0], z=[tp+16], u=[0], v=[0], w=[-1], sizemode="absolute", sizeref=3, showscale=False, colorscale=[[0,'magenta'],[1,'magenta']], name='Pu Direction'))
-    fig.add_trace(go.Cone(x=[B/2], y=[0], z=[tp], u=[1], v=[0], w=[0], sizemode="absolute", sizeref=3, showscale=False, colorscale=[[0,'green'],[1,'green']], name='Vu Direction'))
+    # 6. ลิ่มแรงกดคอนกรีตจำลอง (Concrete Bearing Stress Block Area)
+    if Y_length > 0:
+        # แสดงขอบเขตพื้นที่รับแรงกดวิกฤตจริง
+        y_start = (N/2) - Y_length
+        fig.add_trace(go.Mesh3d(
+            x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2],
+            y=[y_start, y_start, N/2, N/2, y_start, y_start, N/2, N/2],
+            z=[0, 0, 0, 0, -1.5, -1.5, -1.5, -1.5], color='rgba(255, 165, 0, 0.5)', name='Effective Bearing Area (Y)'
+        ))
 
     fig.update_layout(
         template="plotly_white",
         scene=dict(
-            xaxis=dict(title='X (in)'), yaxis=dict(title='Y (in)'), zaxis=dict(title='Z (in)'),
-            aspectmode='data', camera=dict(eye=dict(x=1.25, y=-1.25, z=0.85))
+            xaxis=dict(title='X Axis (B) [in]'), yaxis=dict(title='Y Axis (N) [in]'), zaxis=dict(title='Z Axis [in]'),
+            bgcolor='rgba(255, 255, 255, 0)', aspectmode='data', camera=dict(eye=dict(x=1.3, y=-1.3, z=0.9))
         ),
-        margin=dict(l=0, r=0, b=0, t=0), height=550
+        margin=dict(l=0, r=0, b=0, t=0), height=500
     )
     return fig
 
 # ================= ================= =================
-# 3. INTERACTIVE 4-STEP WORKFLOW WIZARD (UI LAYOUT)
+# 3. INTERACTIVE CALCULATION FLOW (4 STEPS MECHANICS)
 # ================= ================= =================
-col_wizard, col_viewport = st.columns([1.1, 0.9])
+col_wizard, col_viewport = st.columns([1.2, 0.8])
 
 with col_wizard:
     # -------------------------------------------------
-    # STEP 1: BOUNDARY CONDITIONS & EXTERNAL DEMANDS
+    # STEP 1: INDEPENDENT BOUNDARY SPECIFICATIONS
     # -------------------------------------------------
-    st.markdown("<div class='step-box'><h4>📍 Step 1: แรงภายนอกและคุณสมบัติหน้าตัดเริ่มต้น</h4></div>", unsafe_allow_html=True)
+    st.markdown("<div class='step-box'><h3>📍 Step 1: แรงภายนอกและหน้าตัดโครงสร้างต้นทาง</h3><p>ป้อนค่าแรงกระทำจริง ณ โคนเสา และคุณสมบัติวัสดุพื้นฐานเพื่อส่งถ่ายลงสู่จุดต่อ</p></div>", unsafe_allow_html=True)
     
     col_s1_1, col_s1_2 = st.columns(2)
     with col_s1_1:
-        p_u = st.number_input("Factored Axial Load, Pu (kips) [แรงกด]", min_value=0.0, value=150.0, step=10.0)
-        v_u = st.number_input("Factored Shear Load, Vu (kips) [แรงเฉือน]", min_value=0.0, value=25.0, step=5.0)
-        m_u = st.number_input("Factored Moment, Mu (kip-in) [โมเมนต์ดัด]", min_value=0.0, value=450.0, step=50.0)
+        p_u = st.number_input("Factored Axial Load, $P_u$ (kips) [แรงกด (+)]", min_value=1.0, value=120.0, step=10.0)
+        v_u = st.number_input("Factored Shear Load, $V_u$ (kips) [แรงเฉือน]", min_value=0.0, value=20.0, step=5.0)
+        m_u = st.number_input("Factored Overturning Moment, $M_u$ (kip-in)", min_value=0.0, value=500.0, step=50.0)
     with col_s1_2:
-        col_d = st.number_input("ความลึกเสาเหล็กจริง d (นิ้ว)", min_value=4.0, value=10.0, step=0.5)
-        col_bf = st.number_input("ความกว้างปีกเสาจริง bf (นิ้ว)", min_value=4.0, value=10.0, step=0.5)
-        fc_prime = st.number_input("กำลังอัดคอนกรีตตอม่อ fc' (ksi)", min_value=2.0, value=4.0, step=0.5)
-        fy_plate = st.number_input("กำลังคราดเหล็กแผ่นฐาน Fy (ksi)", value=36.0)
+        col_d = st.number_input("ความลึกหน้าตัดเสาเหล็กจริง $d$ (นิ้ว)", min_value=4.0, value=10.0, step=0.1)
+        col_bf = st.number_input("ความกว้างปีกเสาเหล็กจริง $b_f$ (นิ้ว)", min_value=4.0, value=10.0, step=0.1)
+        fc_prime = st.number_input("กำลังอัดประลัยคอนกรีตฐานราก $f'_c$ (ksi)", min_value=2.0, value=4.0, step=0.5)
+        fy_plate = st.number_input("กำลังรับแรงดึงที่จุดคราดเหล็กแผ่น $F_y$ (ksi)", value=36.0)
 
     # -------------------------------------------------
-    # STEP 2: BASE PLATE DIMENSIONING & THICKNESS
+    # STEP 2: RIGOROUS BASE PLATE ECCENTRICITY ANALYSIS
     # -------------------------------------------------
-    st.markdown("<div class='step-box'><h4>📐 Step 2: ออกแบบขนาดและความหนาแผ่นฐาน (Base Plate)</h4></div>", unsafe_allow_html=True)
+    st.markdown("<div class='step-box'><h3>📐 Step 2: วิเคราะห์กลศาสตร์ความเยื้องศูนย์และขนาดแผ่นฐาน</h3><p>คำนวณพฤติกรรมพังทลายของคอนกรีต (Concrete Bearing Limit State) และความหนาเหล็กแผ่นวิกฤต</p></div>", unsafe_allow_html=True)
     
-    # 🧠 ลอจิกคำนวณพื้นที่ขั้นต่ำที่คอนกรีตรับได้ (Concrete Bearing Limit State)
+    # คำนวณความเยื้องศูนย์จริง
+    ecc = m_u / p_u if p_u > 0 else 0.0
     phi_c = 0.65
-    a_min_req = p_u / (phi_c * 0.85 * fc_prime) if fc_prime > 0 else 0
-    # ขนาดแนะนำตามมิติเสาเหล็กจริง เพื่อให้เหล็กแผ่นคลุมเสามิดและมีระยะเจาะรูนอตเหลือ
-    rec_B_size = col_bf + 4.0
-    rec_N_size = col_d + 4.0
+    f_p_max = phi_c * 0.85 * fc_prime  # กำลังแบกทานสูงสุดที่ยอมรับได้ของคอนกรีต (กรณี A2/A1 = 1.0 แบบอนุรักษ์นิยม)
     
-    st.info(f"💡 **คำแนะนำจากระบบ (Recommendation):** \n- คอนกรีตต้องการพื้นที่แบกทานอย่างน้อย **{round(a_min_req, 2)} ตร.นิ้ว**\n- มิติแผ่นฐานที่แนะนำเพื่อหลบปีกเสาและเจาะรูได้ง่ายคืออย่างน้อย **{rec_B_size}\" x {rec_N_size}\"**")
+    # แนะนำขนาดพื้นที่ขั้นต่ำที่คอนกรีตต้องการ
+    a_min_req = p_u / f_p_max
+    rec_B = col_bf + 4.0
+    rec_N = col_d + 4.0
+    
+    st.markdown(f"""
+    > **ผลวิเคราะห์กลศาสตร์เชิงลึก:** > * ค่าความเยื้องศูนย์ของแรงจริง $e = M_u / P_u =$ **{round(ecc, 3)} นิ้ว** > * หน่วยแรงกดคอนกรีตยอมรับได้สูงสุด $f_p = 0.65 \\times 0.85 \\times f'_c =$ **{round(f_p_max, 2)} ksi** > * พื้นที่รับแรงกดขั้นต่ำที่คอนกรีตต้องการตามกฎสมดุลแรง = **{round(a_min_req, 1)} ตร.นิ้ว**
+    """)
     
     col_s2_1, col_s2_2 = st.columns(2)
     with col_s2_1:
-        B = st.number_input("👉 กำหนดความกว้างแผ่นฐานจริง B (นิ้ว)", min_value=float(col_bf), value=float(rec_B_size), step=0.5)
+        B = st.number_input("👉 กำหนดความกว้างแผ่นฐานเหล็กจริง B (นิ้ว)", min_value=float(col_bf), value=float(rec_B), step=0.5)
     with col_s2_2:
-        N = st.number_input("👉 กำหนดความยาวแผ่นฐานจริง N (นิ้ว)", min_value=float(col_d), value=float(rec_N_size), step=0.5)
-        
-    # 🧠 ลอจิกวิเคราะห์ความหนาขั้นต่ำต่อ (Plate Bending Cantilever Theory)
-    m = (N - 0.95 * col_d) / 2
-    n = (B - 0.80 * col_bf) / 2
-    n_prime = math.sqrt(col_d * col_bf) / 4
-    l_crit = max(max(m, n), n_prime)
+        N = st.number_input("👉 กำหนดความยาวแผ่นฐานเหล็กจริง N (นิ้ว)", min_value=float(col_d), value=float(rec_N), step=0.5)
+
+    # ตรวจสอบประเภทพฤติกรรมความเยื้องศูนย์ (Small vs Large Eccentricity)
+    kern = N / 6.0
+    edge_g = 2.0 # ระยะร่นนอตมาตรฐาน
+    f_dist = (N / 2.0) - edge_g # ระยะจากศูนย์กลางเสาไปถึงแนวนอต
     
-    phi_b = 0.90
-    actual_area = B * N
+    Y_length = 0.0
     t_req_min = 0.0
-    if actual_area > 0 and p_u > 0:
-        t_req_min = l_crit * math.sqrt((2 * p_u) / (phi_b * fy_plate * B * N))
+    bearing_stress_max = 0.0
+    tension_total = 0.0
+
+    if ecc <= kern:
+        # Case 1: Small Eccentricity (แรงกดกระจายทั่วแผ่นฐาน ไม่มีแรงดึงในนอต)
+        st.info(f"💡 **พฤติกรรมกลุ่มแรงกดต่ำ ($e \\le N/6$):** แรงกดกระจายตัวเป็นรูปคางหมูทั่วแผ่นฐาน นอตฝังไม่มีแรงดึงงัดเกิดขึ้น")
+        bearing_stress_max = (p_u / (B * N)) * (1.0 + (6.0 * ecc / N))
+        Y_length = N # กดเต็มความยาว
         
-    st.info(f"💡 **คำแนะนำความหนาเหล็กแผ่น:** จากระยะคานยื่นวิกฤตที่เกิดขึ้น แผ่นฐานต้องหนาอย่างน้อย **{round(t_req_min, 3)} นิ้ว**")
-    tp_user = st.number_input("👉 กำหนดความหนาแผ่นฐานเลือกใช้จริง tp (นิ้ว)", min_value=0.25, value=max(1.0, math.ceil(t_req_min*8)/8), step=0.125)
-
-    # -------------------------------------------------
-    # STEP 3: COLUMN-TO-PLATE WELD SPECIFICATION
-    # -------------------------------------------------
-    st.markdown("<div class='step-box'><h4>⚡ Step 3: ออกแบบขนาดรอยเชื่อมระหว่างเสากับแผ่นฐาน</h4></div>", unsafe_allow_html=True)
-    
-    # 🧠 ลอจิกแนะนำขนาดรอยเชื่อมฟิลเล็ตขั้นต่ำตามตาราง AISC Table J2.4 (อิงจากความหนาแผ่นเหล็กที่เลือกใน Step 2)
-    if tp_user <= 0.25: min_weld_16th = 2      # 1/8"
-    elif tp_user <= 0.50: min_weld_16th = 3    # 3/16"
-    elif tp_user <= 0.75: min_weld_16th = 4    # 1/4"
-    else: min_weld_16th = 5                    # 5/16"
-    
-    st.info(f"💡 **คำแนะนำตามมาตรฐาน AISC Table J2.4:** สำหรับแผ่นเหล็กหนา {tp_user}\" ต้องใช้ขนาดขาของรอยเชื่อม (Fillet Weld Size) ไม่ต่ำกว่า **{min_weld_16th}/16\"**")
-    base_weld_size = st.slider("👉 เลือกขนาดขารอยเชื่อมจริงที่วิศวกรต้องการใช้ (หน่วยส่วน 1/16 นิ้ว)", min_value=2, max_value=16, value=int(max(min_weld_16th, 6)))
-
-    # -------------------------------------------------
-    # STEP 4: ANCHOR BOLT CONFIGURATION
-    # -------------------------------------------------
-    st.markdown("<div class='step-box'><h4>🔩 Step 4: ออกแบบจำนวนและการจัดเรียงสลักเกลียวฝัง</h4></div>", unsafe_allow_html=True)
-    
-    # 🧠 ลอจิกวิเคราะห์แรงดึงที่งัดขึ้นมาที่หัวนอตจากโมเมนต์พลิกคว่ำ (Overturning Moment Mechanics)
-    lever_arm = N - 4.0 # ระยะห่างสมมติระหว่างแนวนอตรับแรงดึงและแรงอัด
-    tension_force_total = (m_u / lever_arm) - (p_u / 2) if lever_arm > 0 else 0
-    
-    if tension_force_total > 0:
-        st.warning(f"⚠️ **ตรวจพบแรงถอนวิกฤต (Uplift Tension):** เกิดแรงดึงงัดรวมฝั่งนอตรับแรงดึง **{round(tension_force_total, 1)} kips** ระบบแนะนำให้ใช้การจัดเรียงแบบ 6 หรือ 8 ตัวเพื่อช่วยกระจายแรงดึง")
+        # คำนวณความหนาแผ่นฐานตามทฤษฎีคานยื่น AISC
+        m = (N - 0.95 * col_d) / 2.0
+        n = (B - 0.80 * col_bf) / 2.0
+        n_prime = math.sqrt(col_d * col_bf) / 4.0
+        l_crit = max(max(m, n), n_prime)
+        
+        phi_b = 0.90
+        t_req_min = l_crit * math.sqrt((2.0 * p_u) / (phi_b * fy_plate * B * N))
     else:
-        st.info("💡 **สถานะปลอดภัย:** แรงกดจากน้ำหนักบรรทุกชนะแรงงัดจากโมเมนต์ ไม่มีแรงดึงเกิดขึ้นในสลักเกลียว (นอตทำหน้าที่ล็อกตำแหน่งและรับแรงเฉือน Vu เท่านั้น)")
+        # Case 2: Large Eccentricity ($e > N/6$) ตามมาตรฐาน AISC Design Guide 1
+        st.warning(f"⚠️ **พฤติกรรมแรงดัดสูง ($e > N/6$):** แรงเยื้องศูนย์ออกนอกหน้าตัดวิกฤต เกิดลิ่มแรงกดเป็นรูปสามเหลี่ยม และเกิดแรงงัดถอนนอตฝัง")
         
-    col_s4_1, col_s4_2 = st.columns(2)
-    with col_s4_1:
-        num_anchors = st.selectbox("👉 เลือกจำนวนตัวและการจัดพิกัดนอตฝัง", [4, 6, 8], index=0)
-    with col_s4_2:
-        bolt_dia = st.selectbox("👉 เลือกขนาดเส้นผ่านศูนย์กลางแกนนอตฝัง (นิ้ว)", [0.5, 0.625, 0.75, 0.875, 1.0, 1.25], index=2)
+        # แก้สมการกำลังสองหาความยาวลิ่มแรงกดคคอนกรีต (Y) อ้างอิงสมการสมดุลโมเมนต์รอบแนวนอตรับแรงดึง
+        # (AISC Design Guide 1 สมการกำลังสองหาค่า Y)
+        a_coeff = B * f_p_max / 2.0
+        b_coeff = -B * f_p_max * (f_dist + N/2.0)
+        c_coeff = p_u * (ecc + f_dist)
+        
+        discriminant = b_coeff**2 - 4.0 * a_coeff * c_coeff
+        if discriminant >= 0:
+            Y_root1 = (-b_coeff - math.sqrt(discriminant)) / (2.0 * a_coeff)
+            Y_length = Y_root1
+            bearing_stress_max = f_p_max
+            # คำนวณแรงดึงรวมในนอตฝังจากสมดุลแรงแนวดิ่ง
+            tension_total = (f_p_max * B * Y_length / 2.0) - p_u
+        else:
+            Y_length = N
+            bearing_stress_max = f_p_max * 2.0 # เกินกำลังวิกฤต
+            tension_total = 999.0
+            
+        # คำนวณความหนาแผ่นฐานกรณีแรงดัดสูง (AISC DG1 Section 3.2)
+        # ตรวจสอบจุดดัดงอวิกฤตตรงแนวขอบเสารับแรงดึงเทียบฝั่งแรงอัด
+        m = (N - 0.95 * col_d) / 2.0
+        phi_b = 0.90
+        if Y_length >= m:
+            t_req_min = m * math.sqrt((2.0 * bearing_stress_max) / (phi_b * fy_plate))
+        else:
+            t_req_min = math.sqrt((4.0 * tension_total * (f_dist - col_d/2.0)) / (phi_b * fy_plate * B))
 
+    st.info(f"💡 **ความหนาเหล็กแผ่นฐานที่ต้องการทางทฤษฎี:** $t_{{p, min}} =$ **{round(t_req_min, 3)} นิ้ว**")
+    tp_user = st.number_input("👉 กำหนดความหนาแผ่นฐานเลือกใช้จริง $t_p$ (นิ้ว)", min_value=0.25, value=max(1.0, math.ceil(t_req_min*8)/8), step=0.125)
+
+    # -------------------------------------------------
+    # STEP 3: COLUMN-TO-PLATE WELD CAPACITY (ELASTIC MATRIX)
+    # -------------------------------------------------
+    st.markdown("<div class='step-box'><h3>⚡ Step 3: คำนวณหน่วยแรงในรอยเชื่อมโคนเสา (Weld Stress Group)</h3><p>วิเคราะห์หน่วยแรงรวมจากแรงเฉือน แรงกด และโมเมนต์แบบ Elastic Method จริง</p></div>", unsafe_allow_html=True)
+    
+    # คำนวณความยาวรอยเชื่อมฟิลเล็ตรอบหน้าตัดเสา H-Shape จริง
+    weld_length_total = (4.0 * col_bf) + (2.0 * col_d) - (2.0 * 0.375) # ความยาวสายเชื่อมรอบตัวเสาโดยประมาณ
+    # โมดูลัสหน้าตัดของกลุ่มรอยเชื่อม (Section Modulus of Weld Group, Sw) สมมติคิดเป็นเส้นบรรทัด
+    s_weld_group = (col_bf * col_d) + (col_d**2 / 3.0) 
+    
+    # แนะนำขนาดรอยเชื่อมขั้นต่ำตามมาตรฐาน AISC Table J2.4
+    if tp_user <= 0.25: w_min_rec = 2
+    elif tp_user <= 0.50: w_min_rec = 3
+    elif tp_user <= 0.75: w_min_rec = 4
+    else: w_min_rec = 5
+    
+    st.info(f"💡 **ข้อกำหนด AISC J2.4:** แผ่นเหล็กหนา {tp_user}\" บังคับขนาดขาเชื่อมขั้นต่ำ **{w_min_rec}/16\"** | ความยาวรอยเชื่อมรอบหน้าตัดรวม = {round(weld_length_total, 2)} นิ้ว")
+    base_weld_size = st.slider("👉 เลือกขนาดขาเชื่อมฟิลเล็ตจริงที่ต้องการ (หน่วยส่วน 1/16 นิ้ว)", min_value=2, max_value=16, value=int(max(w_min_rec, 5)))
+    
+    # คำนวณแรงเค้นในรอยเชื่อมจริงต่อความยาว 1 นิ้ว (kips/linear inch)
+    f_weld_axial = p_u / weld_length_total if weld_length_total > 0 else 0
+    f_weld_moment = m_u / s_weld_group if s_weld_group > 0 else 0
+    f_weld_shear = v_u / weld_length_total if weld_length_total > 0 else 0
+    
+    # รวมแรงเค้นแบบ Vector Resultant แรงเค้นตั้งฉาก + แรงเค้นเฉือน
+    weld_demand_total = math.sqrt((f_weld_axial + f_weld_moment)**2 + f_weld_shear**2)
+    # กำลังรับแรงของรอยเชื่อมตามมาตรฐาน AISC LRFD (ลวดเชื่อม E70: F_EXX = 70 ksi)
+    phi_w = 0.75
+    weld_thickness_actual = base_weld_size * (1.0 / 16.0)
+    weld_capacity_per_inch = phi_w * 0.60 * 70.0 * 0.707 * weld_thickness_actual
+
+    # -------------------------------------------------
+    # STEP 4: ANCHOR BOLT CAPACITY & PULLOUT MECHANICS
+    # -------------------------------------------------
+    st.markdown("<div class='step-box'><h3>🔩 Step 4: ประเมินแรงดึงและแรงเฉือนในสลักเกลียวฝัง</h3><p>ตรวจจับแรงถอนงัดที่ถ่ายลงสู่นอตแต่ละตัวพร้อมเช็กแรงตัดวิกฤต</p></div>", unsafe_allow_html=True)
+    
+    num_anchors = st.selectbox("👉 เลือกจำนวนสลักเกลียวฝังที่ต้องการจัดวาง", [4, 6, 8], index=0)
+    
+    # แรงดึงต่อนอตหนึ่งตัว (เฉพาะนอตฝังด้านที่รับแรงดึงงัด)
+    tension_per_bolt = tension_total / (num_anchors / 2) if tension_total > 0 else 0.0
+    # แรงเฉือนต่อนอตหนึ่งตัว (เฉลี่ยรับแรงเฉือน Vu ร่วมกันทั้งหมดตามหลัก LRFD)
+    shear_per_bolt = v_u / num_anchors if num_anchors > 0 else 0.0
+
+    if tension_per_bolt > 0:
+        st.warning(f"⚠️ **ค่าน้ำหนักบรรทุกงัดหัวนอต:** สลักเกลียวฝั่ง Tension ต้องรับแรงดึงบริสุทธิ์ตัวละ **{round(tension_per_bolt, 2)} kips** และรับแรงเฉือนร่วมอีกตัวละ **{round(shear_per_bolt, 2)} kips**")
+    else:
+        st.success(f"✅ **ไม่มีแรงดึงในนอต:** สลักเกลียวรับเฉพาะแรงเฉือนคงที่จากการสไลด์ตัวละ **{round(shear_per_bolt, 2)} kips** เท่านั้น")
 
 # ================= ================= =================
-# 4. LIVE VISUALIZATION & LIMIT STATES MATRIX (RIGHT COLUMN)
+# 4. ENGINEERING LIMIT STATES MATRIX & 3D VIEWPORT
 # ================= ================= =================
 with col_viewport:
     st.markdown("### 📊 AISC Engineering Verification Matrix")
-    st.caption("ตารางสรุปสถานะกำลังเทียบกับแรงเค้นวิกฤตในทุก Limit State ตามเส้นทางถ่ายแรง")
+    st.caption("ตารางวิเคราะห์สัดส่วนความปลอดภัยและกำลังต้านทานจริงตามเกณฑ์ข้อกำหนดของแผ่นฐาน")
 
-    # 🧠 คำนวณความสามารถของระบบและอัตราส่วนความปลอดภัยจริง (Utilization Ratio)
-    # 1. Bearing Check
-    pp_design = phi_c * 0.85 * fc_prime * actual_area
-    bearing_util = (p_u / pp_design) * 100 if pp_design > 0 else 0
-    
-    # 2. Plate Thickness Check
+    # ประเมินร้อยละการใช้กำลัง (Utilization) ในแต่ละส่วน
+    bearing_util = (bearing_stress_max / f_p_max) * 100 if f_p_max > 0 else 0
     plate_util = (t_req_min / tp_user) * 100 if tp_user > 0 else 0
-    
-    # 3. Anchor Tension Check (ต่อสลักเกลียวเดี่ยว)
-    bolts_in_tension = num_anchors / 2
-    t_per_bolt = round(tension_force_total / bolts_in_tension, 2) if tension_force_total > 0 else 0.0
+    weld_util = (weld_demand_total / weld_capacity_per_inch) * 100 if weld_capacity_per_inch > 0 else 0
 
-    summary_table_data = [
+    verification_matrix = [
         {
-            "Engineering Limit State": "1. Concrete Bearing (คอนกรีตรับแรงกด)",
-            "AISC Ref.": "AISC 360 J8",
-            "Demand (แรงที่เกิด)": f"{p_u} kips",
-            "Capacity (กำลังต้านทาน)": f"{round(pp_design, 1)} kips",
-            "Utilization": f"{round(bearing_util, 1)}%",
-            "Status": "PASS" if p_u <= pp_design else "FAIL"
+            "Limit State Check": "1. Concrete Bearing Strength",
+            "AISC Criteria": "AISC 360-16 J8",
+            "Demand": f"{round(bearing_stress_max, 2)} ksi",
+            "Design Capacity ($\phi R_n$)": f"{round(f_p_max, 2)} ksi",
+            "Utilization (%)": f"{round(bearing_util, 1)}%",
+            "Status": "PASS" if bearing_stress_max <= f_p_max else "FAIL"
         },
         {
-            "Engineering Limit State": "2. Plate Bending Thickness (ความหนาแผ่นเหล็ก)",
-            "AISC Ref.": "Design Guide 1",
-            "Demand (แรงที่เกิด)": f"{round(t_req_min, 3)}\" req.",
-            "Capacity (กำลังต้านทาน)": f"{tp_user}\" prov.",
-            "Utilization": f"{round(plate_util, 1)}%",
+            "Limit State Check": "2. Base Plate Bending",
+            "AISC Criteria": "Design Guide 1",
+            "Demand": f"{round(t_req_min, 3)} in (req.)",
+            "Design Capacity ($\phi R_n$)": f"{round(tp_user, 3)} in (prov.)",
+            "Utilization (%)": f"{round(plate_util, 1)}%",
             "Status": "PASS" if t_req_min <= tp_user else "FAIL"
         },
         {
-            "Engineering Limit State": "3. Anchor Tension Force (แรงดึงในสลักเกลียวต่อตัว)",
-            "AISC Ref.": "AISC 360 J9",
-            "Demand (แรงที่เกิด)": f"{t_per_bolt} kips/bolt",
-            "Capacity (กำลังต้านทาน)": "ตามสเปกสลักเกลียว",
-            "Utilization": "--",
-            "Status": "INFO" if t_per_bolt > 0 else "SAFE"
+            "Limit State Check": "3. Base Fillet Weld Stress",
+            "AISC Criteria": "AISC 360-16 J2.4",
+            "Demand": f"{round(weld_demand_total, 2)} k/in",
+            "Design Capacity ($\phi R_n$)": f"{round(weld_capacity_per_inch, 2)} k/in",
+            "Utilization (%)": f"{round(weld_util, 1)}%",
+            "Status": "PASS" if weld_demand_total <= weld_capacity_per_inch else "FAIL"
         }
     ]
-    st.table(summary_table_data)
+    st.table(verification_matrix)
 
-    # แถบแสดงสถานะรวมแบบสรุปเร็ว
-    max_critical_util = max(bearing_util, plate_util)
-    if max_critical_util > 100:
-        st.error(f"❌ โครงสร้างไม่ปลอดภัย (OVERSTRESSED): อัตราส่วนรับแรงสูงสุดคือ {round(max_critical_util, 1)}% กรุณาแก้ไขพารามิเตอร์ในขั้นตอนสีแดง")
+    # การ์ดสรุปความปลอดภัยวิกฤต
+    max_system_util = max(max(bearing_util, plate_util), weld_util)
+    if max_system_util > 100:
+        st.error(f"❌ CRITICAL OVERSTRESS (ระบบไม่ปลอดภัย): อัตราการใช้กำลังสูงสุดทะลุไปที่ {round(max_system_util, 1)}% โปรดเพิ่มความหนาแผ่นเหล็ก หรือขยายขนาดฐานเหล็กต้นทาง")
     else:
-        st.success(f"✅ โครงสร้างผ่านเกณฑ์ต้านทานแรง (SAFE): อัตราการใช้กำลังสูงสุดคือ {round(max_critical_util, 1)}%")
+        st.success(f"✅ STRUCTURAL COMPLIANT (ผ่านเกณฑ์): โครงสร้างจุดต่อปลอดภัยร้อยเปอร์เซ็นต์ อัตรากำลังวิกฤตสูงสุดอยู่ที่ {round(max_system_util, 1)}%")
 
     st.markdown("---")
-    st.markdown("### 🧊 Live 3D Spatial Interactive Model")
-    st.caption("พิกัดโมเดล 3D จะขยับ ปรับสเกล และย้ายตำแหน่งรูเจาะรวมถึงความยาวรอยเชื่อมตามจริงที่คุณปรับทางซ้ายมือแบบเรียลไทม์")
+    st.markdown("### 🧊 Live 3D Stress Visualization Block")
+    st.caption("แถบสีส้มใต้แผ่นฐานเหล็ก แสดงบริเวณขอบเขตระยะลิ่มแรงกดจริง ($Y$) ที่เกิดขึ้นบนคอนกรีตฐานรากตามทฤษฎีสมดุลกลศาสตร์")
     
-    # เรียกกราฟิก 3D ออกมาแสดงผลแบบไหลตามสัดส่วนจริง
-    fig_wizard_model = generate_load_path_base_plate_3d(B, N, tp_user, col_d, col_bf, num_anchors)
-    st.plotly_chart(fig_wizard_model, use_container_width=True)
+    # วาดรูปโมเดล 3D ที่ขยับพิกัดและพื้นที่สีส้มตามพฤติกรรมการคำนวณจริง
+    fig_advanced_connection = generate_advanced_load_path_3d(B, N, tp_user, col_d, col_bf, num_anchors, Y_length, edge_g)
+    st.plotly_chart(fig_advanced_connection, use_container_width=True)
