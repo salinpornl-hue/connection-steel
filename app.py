@@ -69,10 +69,13 @@ def create_3d_connection_model(num_bolts):
         height=400
     )
     return fig
+import math
+import plotly.graph_objects as go
+
 def create_3d_base_plate_model(B, N, tp, col_d, col_bf):
     fig = go.Figure()
 
-    # 1. Concrete Pedestal (ตอม่อคอนกรีต) - สีเทาอ่อนโปร่งแสง
+    # 1. Concrete Pedestal (ตอม่อคอนกรีต)
     fig.add_trace(go.Mesh3d(
         x=[-B, B, B, -B, -B, B, B, -B],
         y=[-N, -N, N, N, -N, -N, N, N],
@@ -80,7 +83,7 @@ def create_3d_base_plate_model(B, N, tp, col_d, col_bf):
         color='lightgray', opacity=0.4, name='Concrete Pedestal'
     ))
 
-    # 2. Base Plate (แผ่นฐานเหล็ก) - สีฟ้าเหล็ก
+    # 2. Base Plate (แผ่นฐานเหล็ก)
     fig.add_trace(go.Mesh3d(
         x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2],
         y=[-N/2, -N/2, N/2, N/2, -N/2, -N/2, N/2, N/2],
@@ -88,7 +91,7 @@ def create_3d_base_plate_model(B, N, tp, col_d, col_bf):
         color='steelblue', opacity=1.0, name='Base Plate'
     ))
 
-    # 3. Column (เสาเหล็กจำลองรูปตัว H/I) - สีเทาเข้ม
+    # 3. Column (เสาเหล็กจำลองรูปตัว H/I)
     # ปีกเสา (Flanges)
     fig.add_trace(go.Mesh3d(
         x=[-col_d/2, -col_d/2+0.5, -col_d/2+0.5, -col_d/2, -col_d/2, -col_d/2+0.5, -col_d/2+0.5, -col_d/2],
@@ -110,8 +113,8 @@ def create_3d_base_plate_model(B, N, tp, col_d, col_bf):
         color='dimgray', name='Column Web'
     ))
 
-    # 4. Anchor Bolts (นอตฝัง 4 มุม) - สีแดง
-    bolt_dist_x = (B/2) - 2.0 # ระยะขอบสมมติ 2 นิ้ว
+    # 4. Anchor Bolts (นอตฝัง 4 มุม)
+    bolt_dist_x = (B/2) - 2.0 
     bolt_dist_y = (N/2) - 2.0
     for bx in [-bolt_dist_x, bolt_dist_x]:
         for by in [-bolt_dist_y, bolt_dist_y]:
@@ -120,33 +123,57 @@ def create_3d_base_plate_model(B, N, tp, col_d, col_bf):
                 mode='lines', line=dict(color='red', width=8), name='Anchor Bolt'
             ))
 
-    # 5. แสดงทิศทางของแรง (Forces Representation)
-    # แรงตามแนวแกน Pu (กดลง)
-    fig.add_trace(go.Scatter3d(
-        x=[0, 0], y=[0, 0], z=[tp+20, tp+10],
-        mode='lines+text', line=dict(color='magenta', width=5),
-        text=['', '↓ Pu (Axial)'], textposition='top center', name='Axial Load'
-    ))
-    # แรงเฉือน Vu (ดันออกด้านข้าง)
-    fig.add_trace(go.Scatter3d(
-        x=[0, 5], y=[0, 0], z=[tp+5, tp+5],
-        mode='lines+text', line=dict(color='green', width=5),
-        text=['', '→ Vu (Shear)'], textposition='middle right', name='Shear Load'
-    ))
-    # โมเมนต์ดัด Mu (เส้นโค้งจำลอง)
-    fig.add_trace(go.Scatter3d(
-        x=[-6, 0, 6], y=[0, 0, 0], z=[tp+12, tp+15, tp+12],
-        mode='lines+text', line=dict(color='orange', width=5, dash='dash'),
-        text=['', '↺ Mu (Moment)', ''], textposition='top center', name='Moment'
-    ))
+    # ================= 5. เพิ่มการแสดงผลแรง (FORCE VECTORS) ให้ชัดเจน =================
+    
+    # 5.1 Axial Force (Pu) - ลูกศรพุ่งลงตรงกลางเสา
+    # เส้นก้านลูกศร
+    fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, 0], z=[tp+25, tp+12], mode='lines', line=dict(color='magenta', width=6), name='Pu Shaft', showlegend=False))
+    # หัวลูกศร (Cone) ชี้ลง z=-1
+    fig.add_trace(go.Cone(x=[0], y=[0], z=[tp+12], u=[0], v=[0], w=[-1], sizemode="absolute", sizeref=3, showscale=False, colorscale=[[0, 'magenta'], [1, 'magenta']], name='Pu Head'))
+    # Label
+    fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[tp+28], mode='text', text=['↓ Pu (Axial)'], textfont=dict(color='magenta', size=14), showlegend=False))
 
+    # 5.2 Shear Force (Vu) - ลูกศรไถลไปตามแกน X ที่ระดับรอยต่อ (Z = tp)
+    # เส้นก้านลูกศร
+    fig.add_trace(go.Scatter3d(x=[0, (B/2)+2], y=[0, 0], z=[tp, tp], mode='lines', line=dict(color='green', width=6), name='Vu Shaft', showlegend=False))
+    # หัวลูกศร (Cone) ชี้ไปทาง x=1
+    fig.add_trace(go.Cone(x=[(B/2)+2], y=[0], z=[tp], u=[1], v=[0], w=[0], sizemode="absolute", sizeref=3, showscale=False, colorscale=[[0, 'green'], [1, 'green']], name='Vu Head'))
+    # Label
+    fig.add_trace(go.Scatter3d(x=[(B/2)+5], y=[0], z=[tp], mode='text', text=['→ Vu (Shear)'], textfont=dict(color='green', size=14), showlegend=False))
+
+    # 5.3 Overturning Moment (Mu) - สร้างเส้นโค้งงัดข้ามหัวเสา
+    arc_x, arc_y, arc_z = [], [], []
+    r_moment = (col_d/2) + 3 # รัศมีวงโค้งของโมเมนต์
+    # สร้างจุดโค้ง 180 องศา จากซ้ายไปขวา
+    for i in range(21):
+        angle = math.pi - (math.pi * i / 20.0) 
+        arc_x.append(r_moment * math.cos(angle))
+        arc_y.append(0)
+        arc_z.append(tp + 8 + (r_moment * math.sin(angle)))
+        
+    # เส้นโค้ง
+    fig.add_trace(go.Scatter3d(x=arc_x, y=arc_y, z=arc_z, mode='lines', line=dict(color='orange', width=5, dash='dash'), name='Mu Arc', showlegend=False))
+    # หัวลูกศรของโมเมนต์ ชี้ลงที่ปลายเส้นโค้งฝั่งขวา
+    fig.add_trace(go.Cone(x=[arc_x[-1]], y=[0], z=[arc_z[-1]], u=[0], v=[0], w=[-1], sizemode="absolute", sizeref=3, showscale=False, colorscale=[[0, 'orange'], [1, 'orange']], name='Mu Head'))
+    # Label
+    fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[tp + 8 + r_moment + 3], mode='text', text=['↻ Mu (Moment)'], textfont=dict(color='orange', size=14), showlegend=False))
+
+    # ==============================================================================
+
+    # ปรับแต่งมุมกล้องและ Layout
     fig.update_layout(
         scene=dict(
-            xaxis_title='X (in)', yaxis_title='Y (in)', zaxis_title='Z (in)', aspectmode='data'
+            xaxis_title='X (in)', yaxis_title='Y (in)', zaxis_title='Z (in)', 
+            aspectmode='data',
+            camera=dict(
+                eye=dict(x=1.5, y=-1.5, z=1.0) # หมุนกล้องเริ่มต้นให้เห็นภาพ 3 มิติชัดๆ
+            )
         ),
-        margin=dict(l=0, r=0, b=0, t=0), height=500
+        margin=dict(l=0, r=0, b=0, t=0), height=550
     )
     return fig
+
+
 # ================= 3. เรียกใช้งาน Engine & UI =================
 engine = AISC_LRFD_Engine()
 
