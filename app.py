@@ -1,20 +1,18 @@
 # app.py
 import streamlit as st
-from engine import AISC_LRFD_Engine
-
-# ตั้งค่าหน้าเว็บ Streamlit
-st.set_page_config(page_title="Steel Connection Design (AISC 360)", layout="wide")
-st.title("🔩 Steel Connection Design Tool (AISC 360-16 LRFD)")
-st.write("พัฒนาโดย Senior Engineer - โปรแกรมคำนวณกำลังจุดต่อโครงสร้างเหล็ก")
-import streamlit as st
 import plotly.graph_objects as go
 from engine import AISC_LRFD_Engine
 
-# ================= ฟังก์ชันสร้าง 3D Model =================
+# ================= 1. ตั้งค่าหน้าเว็บ Streamlit =================
+st.set_page_config(page_title="Steel Connection Design (AISC 360)", layout="wide")
+st.title("🔩 Steel Connection Design Tool (AISC 360-16 LRFD)")
+st.write("พัฒนาโดย Senior Engineer - โปรแกรมคำนวณกำลังจุดต่อโครงสร้างเหล็ก")
+
+# ================= 2. ฟังก์ชันสร้าง 3D Model =================
 def create_3d_connection_model(num_bolts):
     fig = go.Figure()
 
-    # 1. วาดแผ่นเหล็กชิ้นล่าง (Bottom Plate) - สีเทาเข้ม
+    # วาดแผ่นเหล็กชิ้นล่าง (Bottom Plate) - สีเทาเข้ม
     fig.add_trace(go.Mesh3d(
         x=[0, 10, 10, 0, 0, 10, 10, 0],
         y=[0, 0, 5, 5, 0, 0, 5, 5],
@@ -24,7 +22,7 @@ def create_3d_connection_model(num_bolts):
         name='Bottom Plate'
     ))
 
-    # 2. วาดแผ่นเหล็กชิ้นบน (Top Plate) - สีเทาอ่อน
+    # วาดแผ่นเหล็กชิ้นบน (Top Plate) - สีเทาอ่อน
     fig.add_trace(go.Mesh3d(
         x=[5, 15, 15, 5, 5, 15, 15, 5],
         y=[0, 0, 5, 5, 0, 0, 5, 5],
@@ -34,7 +32,7 @@ def create_3d_connection_model(num_bolts):
         name='Top Plate'
     ))
 
-    # 3. วาดนอต (Bolts) ตามจำนวนที่เลือก (จำลองตำแหน่งบนพื้นที่ทับซ้อน X: 5 ถึง 10)
+    # วาดนอต (Bolts) ตามจำนวนที่เลือก (จำลองตำแหน่งบนพื้นที่ทับซ้อน X: 5 ถึง 10)
     bolt_x = []
     bolt_y = []
     
@@ -71,14 +69,14 @@ def create_3d_connection_model(num_bolts):
         height=400
     )
     return fig
-# =======================================================
-# เรียกใช้งาน Engine
+
+# ================= 3. เรียกใช้งาน Engine & UI =================
 engine = AISC_LRFD_Engine()
 
 # แบ่งหน้าจอเป็น 2 แท็บ: แท็บคำนวณนอต และแท็บคำนวณรอยเชื่อม
 tab1, tab2 = st.tabs(["Bolt Connection", "Weld Connection"])
 
-# ================= TAB 1: BOLT DESIGN =================
+# ----------------- TAB 1: BOLT DESIGN -----------------
 with tab1:
     st.header("การออกแบบสลักเกลียว (Bolt Design)")
     
@@ -115,6 +113,12 @@ with tab1:
         else:
             st.error(f"❌ ไม่ผ่าน (FAILED) - จุดต่อรับแรงเกินกำลัง! อัตราส่วน: {round(utilization, 1)}%")
             
+        # แสดงโมเดล 3D
+        st.markdown("---")
+        st.subheader("🧊 โมเดลจุดต่อ 3 มิติ (3D Connection Model)")
+        fig_3d = create_3d_connection_model(int(num_bolts))
+        st.plotly_chart(fig_3d, use_container_width=True)
+            
         # รายละเอียดการคำนวณย่อย
         with st.expander("🔍 ดูรายการคำนวณแบบละเอียด (Calculation Report)"):
             st.write(f"- พื้นฐานหน้าตัดนอต ($A_b$): {res_bolt['A_b']} $in^2$")
@@ -122,7 +126,7 @@ with tab1:
             st.write(f"- กำลังรับแรงเฉือนระบุ ($R_n$ ต่อตัว): {res_bolt['nominal_capacity_kips']} kips")
             st.write(f"- ค่าตัวคูณลดกำลัง ($\phi$): 0.75")
 
-# ================= TAB 2: WELD DESIGN =================
+# ----------------- TAB 2: WELD DESIGN -----------------
 with tab2:
     st.header("การออกแบบรอยเชื่อม (Weld Design)")
     
