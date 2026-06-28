@@ -6,7 +6,72 @@ from engine import AISC_LRFD_Engine
 st.set_page_config(page_title="Steel Connection Design (AISC 360)", layout="wide")
 st.title("🔩 Steel Connection Design Tool (AISC 360-16 LRFD)")
 st.write("พัฒนาโดย Senior Engineer - โปรแกรมคำนวณกำลังจุดต่อโครงสร้างเหล็ก")
+import streamlit as st
+import plotly.graph_objects as go
+from engine import AISC_LRFD_Engine
 
+# ================= ฟังก์ชันสร้าง 3D Model =================
+def create_3d_connection_model(num_bolts):
+    fig = go.Figure()
+
+    # 1. วาดแผ่นเหล็กชิ้นล่าง (Bottom Plate) - สีเทาเข้ม
+    fig.add_trace(go.Mesh3d(
+        x=[0, 10, 10, 0, 0, 10, 10, 0],
+        y=[0, 0, 5, 5, 0, 0, 5, 5],
+        z=[0, 0, 0, 0, -0.5, -0.5, -0.5, -0.5],
+        color='dimgray',
+        opacity=0.8,
+        name='Bottom Plate'
+    ))
+
+    # 2. วาดแผ่นเหล็กชิ้นบน (Top Plate) - สีเทาอ่อน
+    fig.add_trace(go.Mesh3d(
+        x=[5, 15, 15, 5, 5, 15, 15, 5],
+        y=[0, 0, 5, 5, 0, 0, 5, 5],
+        z=[0, 0, 0, 0, 0.5, 0.5, 0.5, 0.5],
+        color='lightgray',
+        opacity=0.8,
+        name='Top Plate'
+    ))
+
+    # 3. วาดนอต (Bolts) ตามจำนวนที่เลือก (จำลองตำแหน่งบนพื้นที่ทับซ้อน X: 5 ถึง 10)
+    bolt_x = []
+    bolt_y = []
+    
+    # จัดเรียงตำแหน่งนอตแบบง่ายๆ
+    if num_bolts == 2:
+        bolt_x, bolt_y = [7.5, 7.5], [1.5, 3.5]
+    elif num_bolts == 4:
+        bolt_x, bolt_y = [6.5, 8.5, 6.5, 8.5], [1.5, 1.5, 3.5, 3.5]
+    elif num_bolts == 6:
+        bolt_x, bolt_y = [6.0, 7.5, 9.0, 6.0, 7.5, 9.0], [1.5, 1.5, 1.5, 3.5, 3.5, 3.5]
+    else:
+        # ถ้าเป็นเลขอื่น ให้วางตำแหน่งตรงกลางสมมติไปก่อน
+        bolt_x = [7.5] * num_bolts
+        bolt_y = [2.5] * num_bolts
+
+    # สร้างแท่งทรงกระบอกจำลองนอต (เส้นหนาสีแดง)
+    for bx, by in zip(bolt_x, bolt_y):
+        fig.add_trace(go.Scatter3d(
+            x=[bx, bx], y=[by, by], z=[-1, 1],
+            mode='lines',
+            line=dict(color='red', width=10),
+            name='Bolt'
+        ))
+
+    # ปรับมุมมองกล้อง 3D
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='X (in)',
+            yaxis_title='Y (in)',
+            zaxis_title='Z (in)',
+            aspectmode='data' # ทำให้สเกล X, Y, Z สมส่วนกันจริง
+        ),
+        margin=dict(l=0, r=0, b=0, t=0),
+        height=400
+    )
+    return fig
+# =======================================================
 # เรียกใช้งาน Engine
 engine = AISC_LRFD_Engine()
 
