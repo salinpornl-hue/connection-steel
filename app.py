@@ -133,11 +133,12 @@ def generate_professional_base_plate_3d(B, N, tp, col_d, col_bf, num_anchors):
             xaxis=dict(title='X Axis (in)', gridcolor='white'),
             yaxis=dict(title='Y Axis (in)', gridcolor='white'),
             zaxis=dict(title='Z Axis (in)', gridcolor='white'),
-            backgroundcolor='rgba(240, 242, 246, 0.5)',
+            bgcolor='rgba(240, 242, 246, 0.5)', # เปลี่ยนจาก backgroundcolor เป็น bgcolor
             aspectmode='data',
             camera=dict(eye=dict(x=1.3, y=-1.3, z=0.9))
         ),
-        margin=dict(l=0, r=0, b=0, t=0), height=550
+        margin=dict(l=0, r=0, b=0, t=0), 
+        height=550
     )
     return fig
 
