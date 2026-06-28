@@ -76,8 +76,11 @@ with col_input:
         rec_B = math.ceil((bf + 150) / 10) * 10
         rec_N = math.ceil((d + 160) / 10) * 10
         
-        B = st.number_input("กว้างเพลต B (mm)", value=float(rec_B))
-        N = st.number_input("ยาวเพลต N (mm)", value=float(rec_N))
+        if "plate_B" not in st.session_state: st.session_state["plate_B"] = float(rec_B)
+        if "plate_N" not in st.session_state: st.session_state["plate_N"] = float(rec_N)
+        
+        B = st.number_input("กว้างเพลต B (mm)", value=st.session_state["plate_B"], key="plate_B")
+        N = st.number_input("ยาวเพลต N (mm)", value=st.session_state["plate_N"], key="plate_N")
         tp = st.selectbox("หนาเพลต tp (mm)", THAI_PLATE_THICKNESSES, index=3)
         bolt_name = st.selectbox("เลือกขนาดสลักเกลียว", list(THAI_ANCHOR_BOLTS.keys()), index=2)
         
@@ -105,8 +108,12 @@ with col_matrix:
         })
 
     # [NEW] Auto-Resize Engine Button
-    if st.button("🤖 Auto-Resize (คลิกปรับพิกัดให้ผ่านเกณฑ์อัตโนมัติ)", use_container_width=True):
+    if st.button("🤖 Auto-Resize (แก้พิกัดโบลต์ + ขยายเพลตอัตโนมัติ)", use_container_width=True):
         fixed_matrix = st.session_state["grid_data"].copy()
+        max_abs_x = 0.0
+        max_abs_y = 0.0
+        
+        # Step 1: ขยับโบลต์หนีเสา
         for idx, row in fixed_matrix.iterrows():
             curr_x, curr_y = row["X (mm)"], row["Y (mm)"]
             sign_x = 1.0 if curr_x >= 0 else -1.0
@@ -114,12 +121,24 @@ with col_matrix:
             
             if abs(curr_x) < init_x: curr_x = init_x * sign_x
             if abs(curr_y) < (d/2.0) + 35.0 and abs(curr_y) > 0.0: curr_y = init_y * sign_y
-            if abs(curr_x) > (B/2.0) - bolt_profile["min_edge"]: curr_x = ((B/2.0) - bolt_profile["min_edge"]) * sign_x
-            if abs(curr_y) > (N/2.0) - bolt_profile["min_edge"]: curr_y = ((N/2.0) - bolt_profile["min_edge"]) * sign_y
             
             fixed_matrix.at[idx, "X (mm)"] = curr_x
             fixed_matrix.at[idx, "Y (mm)"] = curr_y
+            
+            # เก็บค่าตำแหน่งที่กว้างที่สุดไว้ประเมินแผ่นเพลต
+            max_abs_x = max(max_abs_x, abs(curr_x))
+            max_abs_y = max(max_abs_y, abs(curr_y))
+            
         st.session_state["grid_data"] = fixed_matrix
+        
+        # Step 2: ขยายแผ่นเพลตให้ครอบคลุมระยะขอบ (Edge Distance)
+        req_B = (max_abs_x + bolt_profile["min_edge"]) * 2.0
+        req_N = (max_abs_y + bolt_profile["min_edge"]) * 2.0
+        
+        # ปัดเศษขึ้นให้เป็นเลขกลมๆ (หลักสิบ)
+        st.session_state["plate_B"] = float(math.ceil(req_B / 10.0) * 10.0)
+        st.session_state["plate_N"] = float(math.ceil(req_N / 10.0) * 10.0)
+        
         st.rerun()
 
     edited_df = st.data_editor(st.session_state["grid_data"], num_rows="dynamic", use_container_width=True)
