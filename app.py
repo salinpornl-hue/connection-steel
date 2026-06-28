@@ -4,194 +4,207 @@ import streamlit as st
 import plotly.graph_objects as go
 
 # ================= ================= =================
-# 1. DATABASE: THAILAND COMMERCIAL STANDARDS
+# 1. DATABASE & THAI COMMERCIAL METRIC CONVERSION
 # ================= ================= =================
-# ความหนาแผ่นเหล็กหนาที่มีจำหน่ายจริงในตลาดไทย (มิลลิเมตร)
 THAI_PLATE_THICKNESSES = {
-    "9 mm (~3/8\")": 9.0,
-    "12 mm (~1/2\")": 12.0,
-    "16 mm (~5/8\")": 16.0,
-    "19 mm (~3/4\")": 19.0,
-    "22 mm (~7/8\")": 22.0,
-    "25 mm (~1\")": 25.0,
-    "28 mm (~1-1/8\")": 28.0,
-    "32 mm (~1-1/4\")": 32.0,
-    "38 mm (~1-1/2\")": 38.0,
-    "40 mm (~1-5/8\")": 40.0,
-    "50 mm (~2\")": 50.0
+    "12 mm (~1/2\")": 12.0, "16 mm (~5/8\")": 16.0, "19 mm (~3/4\")": 19.0,
+    "22 mm (~7/8\")": 22.0, "25 mm (~1\")": 25.0, "28 mm (~1-1/8\")": 28.0,
+    "32 mm (~1-1/4\")": 32.0, "38 mm (~1-1/2\")": 38.0, "50 mm (~2\")": 50.0
 }
 
-# สลักเกลียวฝังเกรดทั่วไปในไทย (J-Bolt/L-Bolt เกรด SS400 / Grade 4.6, Fu = 400 MPa ~ 58 ksi)
 THAI_ANCHOR_BOLTS = {
-    "M16 (เส้นผ่านศูนย์กลาง 16 มม.)": {"dia_in": 0.630, "area_in2": 0.312, "F_nt": 43.5, "F_nv": 27.0},
-    "M20 (เส้นผ่านศูนย์กลาง 20 มม.)": {"dia_in": 0.787, "area_in2": 0.487, "F_nt": 43.5, "F_nv": 27.0},
-    "M24 (เส้นผ่านศูนย์กลาง 24 มม.)": {"dia_in": 0.945, "area_in2": 0.701, "F_nt": 43.5, "F_nv": 27.0},
-    "M30 (เส้นผ่านศูนย์กลาง 30 มม.)": {"dia_in": 1.181, "area_in2": 1.096, "F_nt": 43.5, "F_nv": 27.0},
-    "M36 (เส้นผ่านศูนย์กลาง 36 มม.)": {"dia_in": 1.417, "area_in2": 1.577, "F_nt": 43.5, "F_nv": 27.0}
+    "M16 (Grade 4.6)": {"dia_in": 0.630, "area_in2": 0.312, "F_nt": 43.5, "F_nv": 27.0},
+    "M20 (Grade 4.6)": {"dia_in": 0.787, "area_in2": 0.487, "F_nt": 43.5, "F_nv": 27.0},
+    "M24 (Grade 4.6)": {"dia_in": 0.945, "area_in2": 0.701, "F_nt": 43.5, "F_nv": 27.0},
+    "M30 (Grade 4.6)": {"dia_in": 1.181, "area_in2": 1.096, "F_nt": 43.5, "F_nv": 27.0},
+    "M36 (Grade 4.6)": {"dia_in": 1.417, "area_in2": 1.577, "F_nt": 43.5, "F_nv": 27.0}
 }
 
-st.set_page_config(page_title="AISC-Thai Base Plate Engine", layout="wide")
-
-# คอนโทรลสไตล์ UI ให้ดูสะอาด เป็นสากลแบบโปรแกรมวิศวกรรมชั้นนำ
+st.set_page_config(page_title="AISC-Thai Expert Connection Engine", layout="wide")
 st.markdown("""
     <style>
-    .main .block-container { padding-top: 1.5rem; }
-    .metric-card { background-color: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #e9ecef; text-align: center; }
-    .step-header { background-color: #0f4c81; color: white; padding: 8px 15px; border-radius: 4px; margin-top: 15px; margin-bottom: 10px; font-weight: bold; }
-    .recommend-box { background-color: #e3f2fd; padding: 10px 15px; border-radius: 5px; border-left: 5px solid #2196f3; margin-bottom: 12px; font-size: 0.95rem; }
-    .warning-box { background-color: #fff3e0; padding: 10px 15px; border-radius: 5px; border-left: 5px solid #ff9800; margin-bottom: 12px; font-size: 0.95rem; }
+    .main .block-container { padding-top: 1rem; }
+    .card-critical { background-color: #fff3r0; border-left: 6px solid #d9534f; padding: 10px; border-radius: 4px; }
+    .weld-label { font-weight: bold; color: #0275d8; }
+    .bolt-tension { color: #d9534f; font-weight: bold; }
+    .bolt-compression { color: #5cb85c; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏗️ AISC-Thai Base Plate Professional Engine")
-st.caption("ระบบคำนวณจุดต่อเสาเหล็กและสลักเกลียวฝังตามพฤติกรรมจริง ร่วมกับวัสดุก่อสร้างที่มีจำหน่ายในประเทศไทย")
+st.title("🛡️ AISC-Thai High-Fidelity Connection Engine")
+st.caption("ระบบวิเคราะห์แยกชิ้นส่วนรอยเชื่อมปีก-เอว และพฤติกรรมกลศาสตร์แรงดึงหัวโบลต์รายตัว | AISC 360-16 LRFD")
 
 # ================= ================= =================
-# 2. IMPROVED 3D VISUALIZATION GRAPHICS
+# 2. ULTRA-DETAILED 3D MESH GENERATION (HIGH FIDELITY)
 # ================= ================= =================
-def generate_engineering_3d_model(B, N, tp_in, col_d, col_bf, num_anchors, Y_length, edge_g=2.0):
+def generate_high_fidelity_3d(B, N, tp_in, d_in, bf_in, tw_in, tf_in, num_anchors, Y_length, tension_per_bolt, edge_g=2.0):
     fig = go.Figure()
 
-    # 1. คอนกรีตตอม่อ (Pedestal Base) - ปรับสีให้ดูเป็นคอนกรีตจริง
+    # 1. คอนกรีตตอม่อโปร่งแสง (Translucent Concrete Pedestal)
     fig.add_trace(go.Mesh3d(
-        x=[-B*0.75, B*0.75, B*0.75, -B*0.75, -B*0.75, B*0.75, B*0.75, -B*0.75],
-        y=[-N*0.75, -N*0.75, N*0.75, N*0.75, -N*0.75, -N*0.75, N*0.75, N*0.75],
-        z=[-15, -15, -15, -15, 0, 0, 0, 0],
-        color='rgb(210, 215, 219)', opacity=0.4, name='Concrete Pedestal'
+        x=[-B*0.8, B*0.8, B*0.8, -B*0.8, -B*0.8, B*0.8, B*0.8, -B*0.8],
+        y=[-N*0.8, -N*0.8, N*0.8, N*0.8, -N*0.8, -N*0.8, N*0.8, N*0.8],
+        z=[-16, -16, -16, -16, 0, 0, 0, 0],
+        color='lightgrey', opacity=0.2, name='Concrete Pedestal', showlegend=True
     ))
 
-    # 2. แผ่นฐานเหล็ก (Base Plate) - สีเหล็กเทาเข้มขัดเงา
+    # 2. แผ่นฐานเหล็กหนาจริง (Solid Steel Base Plate)
     fig.add_trace(go.Mesh3d(
         x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2],
         y=[-N/2, -N/2, N/2, N/2, -N/2, -N/2, N/2, N/2],
         z=[0, 0, 0, 0, tp_in, tp_in, tp_in, tp_in],
-        color='rgb(70, 80, 95)', opacity=0.95, name='Base Plate'
+        color='rgb(90, 100, 110)', opacity=0.9, name='Base Plate'
     ))
 
-    # 3. เสาเหล็กรูปพรรณ H-Beam (มิติจริง)
-    tw, tf = 0.375, 0.50
-    # Left Flange
-    fig.add_trace(go.Mesh3d(x=[-col_d/2, -col_d/2+tf, -col_d/2+tf, -col_d/2, -col_d/2, -col_d/2+tf, -col_d/2+tf, -col_d/2],
-                            y=[-col_bf/2, -col_bf/2, col_bf/2, col_bf/2, -col_bf/2, -col_bf/2, col_bf/2, col_bf/2],
-                            z=[tp_in, tp_in, tp_in, tp_in, tp_in+15, tp_in+15, tp_in+15, tp_in+15], color='rgb(40, 45, 55)', name='H-Column'))
-    # Right Flange
-    fig.add_trace(go.Mesh3d(x=[col_d/2-tf, col_d/2, col_d/2, col_d/2-tf, col_d/2-tf, col_d/2, col_d/2, col_d/2-tf],
-                            y=[-col_bf/2, -col_bf/2, col_bf/2, col_bf/2, -col_bf/2, -col_bf/2, col_bf/2, col_bf/2],
-                            z=[tp_in, tp_in, tp_in, tp_in, tp_in+15, tp_in+15, tp_in+15, tp_in+15], color='rgb(40, 45, 55)', showlegend=False))
-    # Web
-    fig.add_trace(go.Mesh3d(x=[-col_d/2+tf, col_d/2-tf, col_d/2-tf, -col_d/2+tf, -col_d/2+tf, col_d/2-tf, col_d/2-tf, -col_d/2+tf],
-                            y=[-tw/2, -tw/2, tw/2, tw/2, -tw/2, -tw/2, tw/2, tw/2],
-                            z=[tp_in, tp_in, tp_in, tp_in, tp_in+15, tp_in+15, tp_in+15, tp_in+15], color='rgb(40, 45, 55)', showlegend=False))
-
-    # 4. แนวรอยเชื่อมฟิลเล็ต (Weld Path)
-    fig.add_trace(go.Scatter3d(
-        x=[-col_d/2, col_d/2, col_d/2, -col_d/2, -col_d/2], y=[-col_bf/2, -col_bf/2, col_bf/2, col_bf/2, -col_bf/2], z=[tp_in+0.05]*5,
-        mode='lines', line=dict(color='rgb(255, 215, 0)', width=5), name='Fillet Weld'
+    # 3. การสร้างหน้าตัดเสา H-Beam แบบ 3D Solid Volumes แยกปีกและเอวเสาชัดเจน
+    h_col = 18.0 # ความยาวเสาโชว์ในโมเดล
+    # ปีกเสาฝั่งซ้าย (Left Flange)
+    fig.add_trace(go.Mesh3d(
+        x=[-d_in/2, -d_in/2+tf_in, -d_in/2+tf_in, -d_in/2, -d_in/2, -d_in/2+tf_in, -d_in/2+tf_in, -d_in/2],
+        y=[-bf_in/2, -bf_in/2, bf_in/2, bf_in/2, -bf_in/2, -bf_in/2, bf_in/2, bf_in/2],
+        z=[tp_in, tp_in, tp_in, tp_in, tp_in+h_col, tp_in+h_col, tp_in+h_col, tp_in+h_col],
+        color='rgb(50, 55, 65)', opacity=0.95, name='Column Flanges'
+    ))
+    # ปีกเสาฝั่งขวา (Right Flange)
+    fig.add_trace(go.Mesh3d(
+        x=[d_in/2-tf_in, d_in/2, d_in/2, d_in/2-tf_in, d_in/2-tf_in, d_in/2, d_in/2, d_in/2-tf_in],
+        y=[-bf_in/2, -bf_in/2, bf_in/2, bf_in/2, -bf_in/2, -bf_in/2, bf_in/2, bf_in/2],
+        z=[tp_in, tp_in, tp_in, tp_in, tp_in+h_col, tp_in+h_col, tp_in+h_col, tp_in+h_col],
+        color='rgb(50, 55, 65)', opacity=0.95, showlegend=False
+    ))
+    # เอวเสาตรงกลาง (Web)
+    fig.add_trace(go.Mesh3d(
+        x=[-d_in/2+tf_in, d_in/2-tf_in, d_in/2-tf_in, -d_in/2+tf_in, -d_in/2+tf_in, d_in/2-tf_in, d_in/2-tf_in, -d_in/2+tf_in],
+        y=[-tw_in/2, -tw/2, tw_in/2, tw_in/2, -tw_in/2, -tw_in/2, tw_in/2, tw_in/2],
+        z=[tp_in, tp_in, tp_in, tp_in, tp_in+h_col, tp_in+h_col, tp_in+h_col, tp_in+h_col],
+        color='rgb(70, 75, 85)', opacity=0.95, name='Column Web'
     ))
 
-    # 5. สลักเกลียวฝัง (Anchor Bolts Dynamic Arrangement)
+    # 4. แสดงรอยเชื่อมแยกสี: ปีกสีน้ำเงินเอวสีฟ้า (Discrete Weld Lines Visualization)
+    # รอยเชื่อมปีกนอก
+    fig.add_trace(go.Scatter3d(x=[-d_in/2, -d_in/2], y=[-bf_in/2, bf_in/2], z=[tp_in+0.05, tp_in+0.05], mode='lines', line=dict(color='blue', width=6), name='Flange Weld'))
+    fig.add_trace(go.Scatter3d(x=[d_in/2, d_in/2], y=[-bf_in/2, bf_in/2], z=[tp_in+0.05, tp_in+0.05], mode='lines', line=dict(color='blue', width=6), showlegend=False))
+    # รอยเชื่อมเอวเสา (Web Weld)
+    fig.add_trace(go.Scatter3d(x=[-d_in/2+tf_in, d_in/2-tf_in], y=[-tw_in/2-0.02, -tw_in/2-0.02], z=[tp_in+0.05, tp_in+0.05], mode='lines', line=dict(color='cyan', width=5), name='Web Weld'))
+    fig.add_trace(go.Scatter3d(x=[-d_in/2+tf_in, d_in/2-tf_in], y=[tw_in/2+0.02, tw_in/2+0.02], z=[tp_in+0.05, tp_in+0.05], mode='lines', line=dict(color='cyan', width=5), showlegend=False))
+
+    # 5. พิกัดและการแสดงผลสลักเกลียวฝังแบบจำแนกสถานะแรง (Tension vs Compression Bolts)
     ex, ey = (B/2) - edge_g, (N/2) - edge_g
-    if num_anchors == 4:
-        coords = [(-ex, -ey), (ex, -ey), (ex, ey), (-ex, ey)]
-    elif num_anchors == 6:
-        coords = [(-ex, -ey), (ex, -ey), (ex, ey), (-ex, ey), (0, -ey), (0, ey)]
-    else:
-        coords = [(-ex, -ey), (ex, -ey), (ex, ey), (-ex, ey), (0, -ey), (0, ey), (-ex, 0), (ex, 0)]
+    if num_anchors == 4: coords = [(-ex, -ey), (-ex, ey), (ex, -ey), (ex, ey)] # เรียงจากซ้ายไปขวา
+    elif num_anchors == 6: coords = [(-ex, -ey), (-ex, ey), (0, -ey), (0, ey), (ex, -ey), (ex, ey)]
+    else: coords = [(-ex, -ey), (-ex, ey), (0, -ey), (0, ey), (ex, -ey), (ex, ey), (-ex, 0), (ex, 0)]
 
     for idx, (bx, by) in enumerate(coords):
+        # วิเคราะห์ทิศทางแรงดึง: ถ้ายื่นไปฝั่งค่าลบของพิกัด Y (ฝั่งที่โดนโมเมนต์ดัดงัดขึ้น) จะเกิดแรงดึง
+        is_tension_side = True if by > 0 else False # อ้างอิงทิศทางโมเมนต์พลิกคว่ำ
+        bolt_color = 'rgb(240, 50, 50)' if (is_tension_side and tension_per_bolt > 0) else 'rgb(50, 200, 80)'
+        bolt_name = 'Anchor (Tension)' if (is_tension_side and tension_per_bolt > 0) else 'Anchor (Clamping/Comp.)'
+        
+        # วาดตัวโบลต์
         fig.add_trace(go.Scatter3d(
-            x=[bx, bx], y=[by, by], z=[-10, tp_in+2], mode='lines+markers',
-            marker=dict(size=5, color='rgb(180, 40, 40)'), line=dict(color='rgb(220, 50, 50)', width=6),
-            name='Anchor Bolt' if idx == 0 else '', showlegend=True if idx == 0 else False
+            x=[bx, bx], y=[by, by], z=[-12, tp_in+2], mode='lines+markers',
+            marker=dict(size=4, color=bolt_color), line=dict(color=bolt_color, width=7),
+            name=bolt_name, showlegend=True if idx in [0, 2] else False
         ))
+        
+        # ใส่ลูกศรเวกเตอร์แรงดึง (3D Cones) พุ่งขึ้นจากหัวโบลต์เฉพาะตัวที่รับแรงดึงจริง!
+        if is_tension_side and tension_per_bolt > 0:
+            fig.add_trace(go.Cone(
+                x=[bx], y=[by], z=[tp_in+2], u=[0], v=[0], w=[tension_per_bolt*0.15 + 2],
+                sizemode="absolute", sizeref=2, showscale=False, colorscale=[[0,'red'],[1,'red']], name='Tension Force Vector'
+            ))
 
-    # 6. พื้นที่รับแรงอัดลิ่มคอนกรีตจริง (Effective Stress Zone)
+    # 6. บล็อกลิ่มแรงกดคอนกรีตแบบ 3D Solid Prism (Solid Compression Block)
     if Y_length > 0:
         y_start = (N/2) - Y_length
         fig.add_trace(go.Mesh3d(
             x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2],
             y=[y_start, y_start, N/2, N/2, y_start, y_start, N/2, N/2],
-            z=[0, 0, 0, 0, -1.0, -1.0, -1.0, -1.0], color='rgba(255, 120, 0, 0.45)', name='Concrete Compression Block'
+            z=[0, 0, 0, 0, -2.5, -2.5, -2.5, -2.5],
+            color='rgba(255, 140, 0, 0.6)', name='Concrete Bearing Volume'
         ))
 
     fig.update_layout(
         template="plotly_white",
         scene=dict(
-            xaxis=dict(title='B (X-Axis) [in]'), yaxis=dict(title='N (Y-Axis) [in]'), zaxis=dict(title='Z [in]'),
-            aspectmode='data', camera=dict(eye=dict(x=1.3, y=-1.3, z=1.0))
+            xaxis=dict(title='B (Width-X) [in]'), yaxis=dict(title='N (Length-Y) [in]'), zaxis=dict(title='Z [in]'),
+            aspectmode='data', camera=dict(eye=dict(x=1.4, y=-1.4, z=1.1))
         ),
-        margin=dict(l=0, r=0, b=0, t=0), height=520
+        margin=dict(l=0, r=0, b=0, t=0), height=580
     )
     return fig
 
 # ================= ================= =================
-# 3. TWO-COLUMN LAYOUT AND INTERACTIVE WIZARD
+# 3. INTERACTIVE SIDE-BY-SIDE DESIGN ENGINE
 # ================= ================= =================
-ui_left, ui_right = st.columns([1.1, 0.9])
+col_ctrl, col_view = st.columns([1.2, 0.8])
 
-with ui_left:
+with col_ctrl:
     # -------------------------------------------------
-    # STEP 1: BOUNDARY CONDITIONS
+    # STEP 1: DETAILED H-BEAM PROFILE (METRIC INPUT)
     # -------------------------------------------------
-    st.markdown("<div class='step-header'>📍 STEP 1: น้ำหนักบรรทุกที่ฐานเสา & วัสดุเริ่มต้น</div>", unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        p_u = st.number_input("แรงกดใช้งาน, Pu (kips)", min_value=1.0, value=140.0, step=10.0)
-        v_u = st.number_input("แรงเฉือนใช้งาน, Vu (kips)", min_value=0.0, value=22.0, step=2.0)
-        m_u = st.number_input("โมเมนต์ดัดใช้งาน, Mu (kip-in)", min_value=0.0, value=480.0, step=40.0)
-    with c2:
-        col_d = st.number_input("ความลึกเสาเหล็ก d (นิ้ว)", min_value=4.0, value=10.0, step=0.25)
-        col_bf = st.number_input("ความกว้างเสาเหล็ก bf (นิ้ว)", min_value=4.0, value=10.0, step=0.25)
-        fc_prime = st.number_input("กำลังอัดคอนกรีต fc' (ksi) [เช่น 240 ksc -> 3.4 ksi]", min_value=2.0, value=3.5, step=0.5)
-        fy_plate = st.number_input("กำลังคราดแผ่นเหล็ก Fy (ksi) [SS400 = 36 ksi]", value=36.0)
+    st.markdown("<div class='step-header'>📍 STEP 1: ป้อนขนาดมิติเสาเหล็ก H-Beam โดยละเอียด (หน่วย มม.)</div>", unsafe_allow_html=True)
+    
+    # พรีเซ็ตขนาดเหล็กไวด์แฟลงก์/เอชบีมยอดนิยมในไทยตาม มอก. 1227-2558
+    thai_steel_preset = st.selectbox("เลือกมิติเสา H-Beam มาตรฐานไทยด่วน หรือป้อนค่าเองด้านล่าง:", [
+        "Custom (กำหนดเอง)", "H 200x200x8x12 mm", "H 250x250x9x14 mm", "H 300x300x10x15 mm", "H 400x400x13x21 mm"
+    ], index=2)
+    
+    # ตั้งค่าตั้งต้นตามพรีเซ็ต
+    d_init, bf_init, tw_init, tf_init = 300.0, 300.0, 10.0, 15.0
+    if "200x200" in thai_steel_preset: d_init, bf_init, tw_init, tf_init = 200.0, 200.0, 8.0, 12.0
+    elif "250x250" in thai_steel_preset: d_init, bf_init, tw_init, tf_init = 250.0, 250.0, 9.0, 14.0
+    elif "400x400" in thai_steel_preset: d_init, bf_init, tw_init, tf_init = 400.0, 400.0, 13.0, 21.0
+
+    c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+    with c_m1: col_d_mm = st.number_input("ลึกเสา d (mm)", min_value=100.0, value=d_init)
+    with c_m2: col_bf_mm = st.number_input("กว้างปีก bf (mm)", min_value=100.0, value=bf_init)
+    with c_m3: col_tw_mm = st.number_input("หนาเอว tw (mm)", min_value=4.0, value=tw_init)
+    with c_m4: col_tf_mm = st.number_input("หนาปีก tf (mm)", min_value=4.0, value=tf_init)
+
+    # แปลงหน่วยมิลลิเมตรเข้าสู่ระบบคำนวณนิ้ว (AISC Mechanics Engine Backend)
+    d_in, bf_in, tw_in, tf_in = col_d_mm/25.4, col_bf_mm/25.4, col_tw_mm/25.4, col_tf_mm/25.4
+
+    st.markdown("**ป้อนค่าน้ำหนักบรรทุกประลัย (Factored Loads):**")
+    cx1, cx2, cx3 = st.columns(3)
+    with cx1: p_u = st.number_input("แรงกด Pu (kips)", min_value=1.0, value=150.0)
+    with cx2: v_u = st.number_input("แรงเฉือน Vu (kips)", min_value=0.0, value=30.0)
+    with cx3: m_u = st.number_input("โมเมนต์ดัด Mu (kip-in)", min_value=0.0, value=600.0)
+    
+    fc_prime = st.number_input("กำลังอัดคอนกรีตฐานราก fc' (ksi)", min_value=2.0, value=4.0)
 
     # -------------------------------------------------
-    # STEP 2: BASE PLATE GEOMETRY & THICKNESS (THAI STANDARDS)
+    # STEP 2: METRIC BASE PLATE CONFIGURATION
     # -------------------------------------------------
-    st.markdown("<div class='step-header'>📐 STEP 2: ขนาดและระดับความหนาแผ่นฐานเหล็ก (มอก. / ตลาดไทย)</div>", unsafe_allow_html=True)
+    st.markdown("<div class='step-header'>📐 STEP 2: ออกแบบมิติแผ่นฐานและสุ่มตรวจความหนาแผ่นเหล็ก มอก.</div>", unsafe_allow_html=True)
     
     phi_c = 0.65
     f_p_max = phi_c * 0.85 * fc_prime
-    a_min_req = p_u / f_p_max
-    rec_B = col_bf + 4.0
-    rec_N = col_d + 4.0
+    rec_B_in = bf_in + 4.0
+    rec_N_in = d_in + 4.0
     
-    st.markdown(f"""
-    <div class='recommend-box'>
-    💡 <b>ข้อเสนอแนะจากระบบ:</b><br>
-    - คอนกรีตต้องการพื้นที่รองรับไม่น้อยกว่า <b>{round(a_min_req, 1)} ตร.นิ้ว</b><br>
-    - เพื่อให้ครอบคลุมหน้าตัดเสาเหล็ก ควรใช้ขนาดอย่างน้อย: <b>B = {rec_B}\" และ N = {rec_N}\"</b>
-    </div>
-    """, unsafe_allow_html=True)
+    st.info(f"💡 **ระยะครอบคลุมหน้าตัดแสตมป์ขั้นต่ำ:** แนะนำให้ใช้แผ่นฐานขนาดอย่างน้อย {round(rec_B_in, 1)} x {round(rec_N_in, 1)} นิ้ว เพื่อให้มีพื้นที่เหลือเชื่อมแนวรอบขาเสาได้สมบูรณ์")
+    
+    c_p1, c_p2 = st.columns(2)
+    with c_p1: B = st.number_input("ระบุความกว้างแผ่นฐานจริง B (นิ้ว)", min_value=float(bf_in), value=float(math.ceil(rec_B_in)))
+    with c_p2: N = st.number_input("ระบุความยาวแผ่นฐานจริง N (นิ้ว)", min_value=float(d_in), value=float(math.ceil(rec_N_in)))
 
-    c3, c4 = st.columns(2)
-    with c3:
-        B = st.number_input("👉 กำหนดความกว้างจริง B (นิ้ว)", min_value=float(col_bf), value=float(rec_B), step=0.5)
-    with c4:
-        N = st.number_input("👉 กำหนดความยาวจริง N (นิ้ว)", min_value=float(col_d), value=float(rec_N), step=0.5)
-
-    # คำนวณความเยื้องศูนย์และระยะลิ่มแรงกดเชิงวิศวกรรมจริง
+    # การวิเคราะห์พฤติกรรมเยื้องศูนย์ขั้นสูง (Rigorous Mechanics)
     ecc = m_u / p_u if p_u > 0 else 0.0
     kern = N / 6.0
-    edge_g = 2.0
+    edge_g = 2.5 # ระยะร่นเจาะรูโบลต์มาตรฐานจากขอบเพลต
     f_dist = (N / 2.0) - edge_g
     
-    Y_length = 0.0
-    t_req_min = 0.0
-    bearing_stress_actual = 0.0
-    tension_total = 0.0
+    Y_length, t_req_min, bearing_stress_actual, tension_total = 0.0, 0.0, 0.0, 0.0
 
     if ecc <= kern:
-        # Small Eccentricity
         bearing_stress_actual = (p_u / (B * N)) * (1.0 + (6.0 * ecc / N))
         Y_length = N
-        m = (N - 0.95 * col_d) / 2.0
-        n = (B - 0.80 * col_bf) / 2.0
-        n_prime = math.sqrt(col_d * col_bf) / 4.0
-        l_crit = max(max(m, n), n_prime)
-        t_req_min = l_crit * math.sqrt((2.0 * p_u) / (0.90 * fy_plate * B * N))
+        m = (N - 0.95 * d_in) / 2.0
+        n = (B - 0.80 * bf_in) / 2.0
+        t_req_min = max(m, n) * math.sqrt((2.0 * p_u) / (0.90 * 36.0 * B * N))
     else:
-        # Large Eccentricity (เกิดคานงัดดึงนอต)
+        # พฤติกรรมแรงดัดสูงมาก (Large Overturning Moment) นอตโดนงัดดึง
         a_coeff = B * f_p_max / 2.0
         b_coeff = -B * f_p_max * (f_dist + N/2.0)
         c_coeff = p_u * (ecc + f_dist)
@@ -205,130 +218,96 @@ with ui_left:
             bearing_stress_actual = f_p_max
             tension_total = 0.0
             
-        m = (N - 0.95 * col_d) / 2.0
+        m = (N - 0.95 * d_in) / 2.0
         if Y_length >= m:
-            t_req_min = m * math.sqrt((2.0 * bearing_stress_actual) / (0.90 * fy_plate))
+            t_req_min = m * math.sqrt((2.0 * bearing_stress_actual) / (0.90 * 36.0))
         else:
-            t_req_min = math.sqrt((4.0 * tension_total * (f_dist - col_d/2.0)) / (0.90 * fy_plate * B))
+            t_req_min = math.sqrt((4.0 * tension_total * (f_dist - d_in/2.0)) / (0.90 * 36.0 * B))
 
-    # ส่วนเลือกความหนาแผ่นเหล็กตามที่มีขายจริงในไทย
-    st.markdown(f"**ความหนาขั้นต่ำที่คำนวณได้ทางวิศวกรรม:** <span class='math-text'>{round(t_req_min, 3)} นิ้ว</span> (~{round(t_req_min * 25.4, 1)} มม.)", unsafe_allow_html=True)
-    selected_thickness_label = st.selectbox("👉 เลือกความหนาเหล็กแผ่นที่ใช้จริง (ตามขนาดตลาดประเทศไทยในหน่วย mm):", list(THAI_PLATE_THICKNESSES.keys()), index=2)
-    tp_mm = THAI_PLATE_THICKNESSES[selected_thickness_label]
-    tp_in = tp_mm / 25.4 # แปลงกลับไปเป็นนิ้วเพื่อใช้ในสมการและโมเดล 3D
+    selected_thickness_label = st.selectbox("เลือกความหนาแผ่นเหล็กตามสเปกตลาดไทย (mm):", list(THAI_PLATE_THICKNESSES.keys()), index=2)
+    tp_in = THAI_PLATE_THICKNESSES[selected_thickness_label] / 25.4
 
     # -------------------------------------------------
-    # STEP 3: WELD DESIGN
+    # STEP 3: DISCRETE FLANGE & WEB WELD SEPARATION
     # -------------------------------------------------
-    st.markdown("<div class='step-header'>⚡ STEP 3: ขนาดรอยเชื่อมขาเสา (Fillet Weld)</div>", unsafe_allow_html=True)
-    weld_length_total = (4.0 * col_bf) + (2.0 * col_d) - (2.0 * 0.375)
-    s_weld_group = (col_bf * col_d) + (col_d**2 / 3.0) 
+    st.markdown("<div class='step-header'>⚡ STEP 3: ออกแบบแยกส่วนแนวเชื่อมขาเสา (Flange vs. Web Welding)</div>", unsafe_allow_html=True)
     
-    # เช็กขนาดรอยเชื่อมขั้นต่ำตามความหนาเพลตจริง (AISC J2.4)
-    if tp_in <= 0.25: w_min_rec = 2
-    elif tp_in <= 0.50: w_min_rec = 3
-    elif tp_in <= 0.75: w_min_rec = 4
-    else: w_min_rec = 5
+    # คำนวณความยาวแนวเชื่อมแบ่งตามสัดส่วนพื้นที่หน้าตัดจริง
+    length_weld_flange = 4.0 * bf_in  # เชื่อมรอบปีกนอกและปีกในเสา
+    length_weld_web = 2.0 * (d_in - (2.0 * tf_in)) # เชื่อมเอวเสาสองฝั่ง
     
-    st.markdown(f"<div class='recommend-box'>💡 <b>AISC J2.4 Minimum Weld Size:</b> แผ่นเหล็กหนา {tp_mm} มม. ต้องใช้รอยเชื่อมขนาดไม่ต่ำกว่า <b>{w_min_rec}/16\"</b></div>", unsafe_allow_html=True)
-    base_weld_size = st.slider("👉 กำหนดขนาดรอยเชื่อมจริง (หน่วย 1/16 นิ้ว):", min_value=2, max_value=12, value=int(max(w_min_rec, 5)))
-    
-    weld_demand = math.sqrt((p_u/weld_length_total + m_u/s_weld_group)**2 + (v_u/weld_length_total)**2)
-    weld_capacity = 0.75 * 0.60 * 70.0 * 0.707 * (base_weld_size / 16.0)
+    base_weld_size = st.slider("เลือกขนาดขารอยเชื่อมจริง (หน่วย หุน หรือ ส่วน 1/16 นิ้ว):", min_value=2, max_value=10, value=4)
+    weld_leg = base_weld_size / 16.0
+    weld_capacity_per_inch = 0.75 * 0.60 * 70.0 * 0.707 * weld_leg
+
+    # การถ่ายแรง: โมเมนต์ดัด Mu และแรงกด Pu ส่วนใหญ่จะเข้าสู่รอยเชื่อมปีกเสา (Flange Welds)
+    # ขณะที่แรงเฉือน Vu ทั้งหมดจะวิ่งไหลเข้าสู่รอยเชื่อมเอวเสา (Web Welds)
+    weld_demand_flange = (p_u / (length_weld_flange + length_weld_web)) + (m_u / (bf_in * (d_in - tf_in)))
+    weld_demand_web = v_u / length_weld_web if length_weld_web > 0 else 0.0
+
+    st.markdown(f"""
+    * 🔹 **ที่บริเวณปีกเสา (Flange):** รับแรงกดรวมแรงดัดรวมกันสูงถึง <span class='weld-label'>{round(weld_demand_flange, 2)} kips/นิ้ว</span> (กำลังต้านทานรอยเชื่อมที่มี: {round(weld_capacity_per_inch, 2)} kips/นิ้ว)
+    * 🔹 **ที่บริเวณเอวเสา (Web):** รับเฉพาะแรงเฉือนตรงพังทลายสไลด์ขาเสา <span class='weld-label'>{round(weld_demand_web, 2)} kips/นิ้ว</span>
+    """, unsafe_allow_html=True)
 
     # -------------------------------------------------
-    # STEP 4: ANCHOR BOLTS CAPACITY INTERACTION (THAI METRIC SIZES)
+    # STEP 4: BOLT MAP & STATE ASSIGNMENT
     # -------------------------------------------------
-    st.markdown("<div class='step-header'>🔩 STEP 4: ตรวจสอบและเลือกขนาดสลักเกลียวฝัง (Anchor Bolts)</div>", unsafe_allow_html=True)
+    st.markdown("<div class='step-header'>🔩 STEP 4: แผนผังจำแนกสถานะกลุ่มโบลต์รับแรงดึงดัด (Anchor Bolt Mapping)</div>", unsafe_allow_html=True)
     
-    c5, c6 = st.columns(2)
-    with c5:
-        num_anchors = st.selectbox("👉 เลือกจำนวนสลักเกลียวที่ใช้ในจุดต่อ:", [4, 6, 8], index=0)
-    with c6:
-        selected_bolt_label = st.selectbox("👉 เลือกขนาดโบลต์มาตรฐานไทย (Metric):", list(THAI_ANCHOR_BOLTS.keys()), index=1)
-        
-    bolt_data = THAI_ANCHOR_BOLTS[selected_bolt_label]
+    num_anchors = st.selectbox("กำหนดจำนวนสลักเกลียวฝังทั้งหมดที่หน้างาน:", [4, 6, 8], index=0)
+    selected_bolt = st.selectbox("เลือกขนาดแกนโบลต์มาตรฐานอุตสาหกรรมไทย:", list(THAI_ANCHOR_BOLTS.keys()), index=2)
+    bolt_profile = THAI_ANCHOR_BOLTS[selected_bolt]
     
-    # คำนวณความต้องการ (Demands) ต่อนอตหนึ่งตัว
-    tension_per_bolt = tension_total / (num_anchors / 2) if tension_total > 0 else 0.0
+    # คำนวณพฤติกรรมแยกข้างรายตัว
+    bolts_in_tension_zone = num_anchors / 2
+    tension_per_bolt = tension_total / bolts_in_tension_zone if tension_total > 0 else 0.0
     shear_per_bolt = v_u / num_anchors
     
-    # คำนวณกำลังต้านทานจริง (Design Capacity) ตามมาตรฐาน AISC 360-16 Chapter J
-    phi_b_bolt = 0.75
-    nominal_tensile_capacity = phi_b_bolt * bolt_data["F_nt"] * bolt_data["area_in2"]
-    nominal_shear_capacity = phi_b_bolt * bolt_data["F_nv"] * bolt_data["area_in2"]
-    
-    if tension_per_bolt > 0:
-        st.markdown(f"""
-        <div class='warning-box'>
-        ⚠️ <b>สถานะแรงดึงวิกฤต:</b> โบลต์รับแรงดึงตัวละ <b>{round(tension_per_bolt, 2)} kips</b> | กำลังรับแรงดึงระบุของตัวโบลต์เหล็ก <b>{round(nominal_tensile_capacity, 2)} kips</b>
-        </div>
-        """, unsafe_allow_html=True)
+    phi_b = 0.75
+    cap_tension_single = phi_b * bolt_profile["F_nt"] * bolt_profile["area_in2"]
+    cap_shear_single = phi_b * bolt_profile["F_nv"] * bolt_profile["area_in2"]
+
+    st.markdown(f"""
+    * 🟥 **กลุ่มโบลต์ฝั่งรับโมเมนต์งัด (Tension Side จำนวน {int(bolts_in_tension_zone)} ตัว):** ต้องแบกรับแรงดึงสุทธิถึงตัวละ <span class='bolt-tension'>{round(tension_per_bolt, 2)} kips</span>
+    * 🟩 **กลุ่มโบลต์ฝั่งจมแรงอัด (Compression/Clamping Side จำนวน {int(bolts_in_tension_zone)} ตัว):** ไม่เกิดแรงดึงตัวนอตทำหน้าที่แค่ยึดตรึงพิกัดตำแหน่ง (Tension = <span class='bolt-compression'>0.00 kips</span>)
+    """, unsafe_allow_html=True)
 
 # ================= ================= =================
-# 4. VIEWPORT, VERIFICATION TABLES AND PROFESSIONAL LAYOUT
+# 4. PROFESSIONAL ENGINEERING DASHBOARD (RIGHT COLUMN)
 # ================= ================= =================
 with ui_right:
     st.markdown("### 📊 AISC Structural Verification Matrix")
-    st.caption("สรุปและตรวจสอบพฤติกรรมการรับแรงของจุดต่อเมื่อเทียบกับกำลังวัสดุจริง")
+    st.caption("ตารางตรวจสอบขีดความสามารถประลัยแยกจุดวิกฤต (Component Limit States)")
 
-    # อัตราการใช้กำลังในแต่ละจุดวิกฤต (Utilization Ratios)
-    bearing_util = (bearing_stress_actual / f_p_max) * 100 if f_p_max > 0 else 0
-    plate_util = (t_req_min / tp_in) * 100 if tp_in > 0 else 0
-    weld_util = (weld_demand / weld_capacity) * 100 if weld_capacity > 0 else 0
-    bolt_tension_util = (tension_per_bolt / nominal_tensile_capacity) * 100 if nominal_tensile_capacity > 0 else 0
-    bolt_shear_util = (shear_per_bolt / nominal_shear_capacity) * 100 if nominal_shear_capacity > 0 else 0
+    # สรุปเปอร์เซ็นต์การแบกรับแรงเค้นสูงสุด (Utilization Ratio Matrix)
+    util_bearing = (bearing_stress_actual / f_p_max) * 100
+    util_plate = (t_req_min / tp_in) * 100
+    util_weld_flange = (weld_demand_flange / weld_capacity_per_inch) * 100
+    util_weld_web = (weld_demand_web / weld_capacity_per_inch) * 100
+    util_bolt_t = (tension_per_bolt / cap_tension_single) * 100 if cap_tension_single > 0 else 0
+    util_bolt_v = (shear_per_bolt / cap_shear_single) * 100
 
-    verification_table = [
-        {
-            "Limit State (จุดตรวจสอบวิกฤต)": "1. คอนกรีตรับแรงบดอัด (Bearing)",
-            "Demand": f"{round(bearing_stress_actual, 2)} ksi",
-            "Capacity (φRn)": f"{round(f_p_max, 2)} ksi",
-            "Ratio (%)": f"{round(bearing_util, 1)}%",
-            "Result": "✅ PASS" if bearing_stress_actual <= f_p_max else "❌ FAIL"
-        },
-        {
-            "Limit State (จุดตรวจสอบวิกฤต)": "2. ความหนาแผ่นเพลต (Plate Bending)",
-            "Demand": f"{round(t_req_min, 3)} in",
-            "Capacity (φRn)": f"{round(tp_in, 3)} in",
-            "Ratio (%)": f"{round(plate_util, 1)}%",
-            "Result": "✅ PASS" if t_req_min <= tp_in else "❌ FAIL"
-        },
-        {
-            "Limit State (จุดตรวจสอบวิกฤต)": "3. แรงเค้นในรอยเชื่อมขาเสา (Weld)",
-            "Demand": f"{round(weld_demand, 2)} k/in",
-            "Capacity (φRn)": f"{round(weld_capacity, 2)} k/in",
-            "Ratio (%)": f"{round(weld_util, 1)}%",
-            "Result": "✅ PASS" if weld_demand <= weld_capacity else "❌ FAIL"
-        },
-        {
-            "Limit State (จุดตรวจสอบวิกฤต)": "4. โบลต์รับแรงดึง (Bolt Tension)",
-            "Demand": f"{round(tension_per_bolt, 2)} kips",
-            "Capacity (φRn)": f"{round(nominal_tensile_capacity, 2)} kips",
-            "Ratio (%)": f"{round(bolt_tension_util, 1)}%",
-            "Result": "✅ PASS" if tension_per_bolt <= nominal_tensile_capacity else "❌ FAIL"
-        },
-        {
-            "Limit State (จุดตรวจสอบวิกฤต)": "5. โบลต์รับแรงเฉือน (Bolt Shear)",
-            "Demand": f"{round(shear_per_bolt, 2)} kips",
-            "Capacity (φRn)": f"{round(nominal_shear_capacity, 2)} kips",
-            "Ratio (%)": f"{round(bolt_shear_util, 1)}%",
-            "Result": "✅ PASS" if shear_per_bolt <= nominal_shear_capacity else "❌ FAIL"
-        }
+    report_data = [
+        {"Component Limit State Check": "1. คอนกรีตรับแรงกดตอม่อ (Concrete Bearing)", "Demand": f"{round(bearing_stress_actual, 2)} ksi", "Capacity (φRn)": f"{round(f_p_max, 2)} ksi", "Ratio %": f"{round(util_bearing, 1)}%", "Status": "PASS" if util_bearing<=100 else "FAIL"},
+        {"Component Limit State Check": "2. ความหนาแผ่นเหล็กเพลตฐาน (Plate Bending)", "Demand": f"{round(t_req_min, 3)} in", "Capacity (φRn)": f"{round(tp_in, 3)} in", "Ratio %": f"{round(util_plate, 1)}%", "Status": "PASS" if util_plate<=100 else "FAIL"},
+        {"Component Limit State Check": "3. รอยเชื่อมบริเวณปีกเสาเหล็ก (Flange Weld)", "Demand": f"{round(weld_demand_flange, 2)} k/in", "Capacity (φRn)": f"{round(weld_capacity_per_inch, 2)} k/in", "Ratio %": f"{round(util_weld_flange, 1)}%", "Status": "PASS" if util_weld_flange<=100 else "FAIL"},
+        {"Component Limit State Check": "4. รอยเชื่อมบริเวณเอวเสาเหล็ก (Web Weld)", "Demand": f"{round(weld_demand_web, 2)} k/in", "Capacity (φRn)": f"{round(weld_capacity_per_inch, 2)} k/in", "Ratio %": f"{round(util_weld_web, 1)}%", "Status": "PASS" if util_weld_web<=100 else "FAIL"},
+        {"Component Limit State Check": "5. ตัวโบลต์ฝั่งรับแรงดึงงัด (Bolt Tension-only)", "Demand": f"{round(tension_per_bolt, 2)} kips", "Capacity (φRn)": f"{round(cap_tension_single, 2)} kips", "Ratio %": f"{round(util_bolt_t, 1)}%", "Status": "PASS" if util_bolt_t<=100 else "FAIL"},
+        {"Component Limit State Check": "6. ตัวโบลต์รับแรงเฉือนสไลด์ (Bolt Shear-only)", "Demand": f"{round(shear_per_bolt, 2)} kips", "Capacity (φRn)": f"{round(cap_shear_single, 2)} kips", "Ratio %": f"{round(util_bolt_v, 1)}%", "Status": "PASS" if util_bolt_v<=100 else "FAIL"},
     ]
-    st.table(verification_table)
+    st.table(report_data)
 
-    # แผงตรวจสอบสรุปสถานะความปลอดภัยสูงสุดของระบบ (Max Interaction)
-    max_util = max([bearing_util, plate_util, weld_util, bolt_tension_util, bolt_shear_util])
+    max_util = max([util_bearing, util_plate, util_weld_flange, util_weld_web, util_bolt_t, util_bolt_v])
     if max_util > 100:
-        st.error(f"❌ โครงสร้างไม่ปลอดภัย (OVERSTRESSED): อัตราส่วนรับแรงสูงสุดทะลุไปที่ {round(max_util, 1)}% กรุณาเพิ่มขนาดหน้าตัดหรือความหนาแผ่นเหล็ก")
+        st.error(f"❌ OVERSTRESSED CRITICAL ({round(max_util, 1)}%): โครงสร้างจุดต่อบางชิ้นส่วนเกินขีดจำกัดความปลอดภัยขั้นรุนแรง!")
     else:
-        st.success(f"✅ โครงสร้างผ่านเกณฑ์ความปลอดภัยสูงสุด (SAFE): อัตราการใช้กำลังสูงสุดของจุดต่ออยู่ที่ {round(max_util, 1)}%")
+        st.success(f"✅ STRUCTURAL SAFE ({round(max_util, 1)}%): ชิ้นส่วนจุดต่อทั้งหมดผ่านเกณฑ์ควบคุมมาตรฐาน LRFD และใช้งานได้จริงหน้างาน")
 
     st.markdown("---")
-    st.markdown("### 🧊 Live 3D Mechanical Spatial Model")
-    st.caption("ระนาบแผ่นสีส้มใต้เพลตคือระยะลิ่มแรงกดจริงบนคอนกรีต ($Y$) ที่เปลี่ยนรูปร่างไปตามความเยื้องศูนย์ของแรงแบบเรียลไทม์")
+    st.markdown("### 🧊 High-Fidelity 3D Mechanical Spatial Model")
+    st.caption("โมเดลแสดงสัดส่วนจริงของหน้าตัดเสา H-Beam, การจัดวางรอยเชื่อมแยกสี (ปีก-น้ำเงิน / เอว-ฟ้า), บล็อกลิ่มแรงกดสีส้ม และลูกศรสีแดงแสดงเวกเตอร์แรงดึงพุ่งจากหัวโบลต์ที่มีแรงงัดจริง")
     
-    # เรนเดอร์กราฟิกโมเดล 3 มิติเชิงกลศาสตร์แบบสมบูรณ์
-    fig_model = generate_engineering_3d_model(B, N, tp_in, col_d, col_bf, num_anchors, Y_length, edge_g)
-    st.plotly_chart(fig_model, use_container_width=True)
+    # รันโมเดล 3 มิติความละเอียดสูง
+    fig_hf_model = generate_high_fidelity_3d(B, N, tp_in, d_in, bf_in, tw_in, tf_in, num_anchors, Y_length, tension_per_bolt, edge_g)
+    st.plotly_chart(fig_hf_model, use_container_width=True)
