@@ -69,12 +69,89 @@ def create_3d_connection_model(num_bolts):
         height=400
     )
     return fig
+def create_3d_base_plate_model(B, N, tp, col_d, col_bf):
+    fig = go.Figure()
 
+    # 1. Concrete Pedestal (ตอม่อคอนกรีต) - สีเทาอ่อนโปร่งแสง
+    fig.add_trace(go.Mesh3d(
+        x=[-B, B, B, -B, -B, B, B, -B],
+        y=[-N, -N, N, N, -N, -N, N, N],
+        z=[-15, -15, -15, -15, 0, 0, 0, 0],
+        color='lightgray', opacity=0.4, name='Concrete Pedestal'
+    ))
+
+    # 2. Base Plate (แผ่นฐานเหล็ก) - สีฟ้าเหล็ก
+    fig.add_trace(go.Mesh3d(
+        x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2],
+        y=[-N/2, -N/2, N/2, N/2, -N/2, -N/2, N/2, N/2],
+        z=[0, 0, 0, 0, tp, tp, tp, tp],
+        color='steelblue', opacity=1.0, name='Base Plate'
+    ))
+
+    # 3. Column (เสาเหล็กจำลองรูปตัว H/I) - สีเทาเข้ม
+    # ปีกเสา (Flanges)
+    fig.add_trace(go.Mesh3d(
+        x=[-col_d/2, -col_d/2+0.5, -col_d/2+0.5, -col_d/2, -col_d/2, -col_d/2+0.5, -col_d/2+0.5, -col_d/2],
+        y=[-col_bf/2, -col_bf/2, col_bf/2, col_bf/2, -col_bf/2, -col_bf/2, col_bf/2, col_bf/2],
+        z=[tp, tp, tp, tp, tp+15, tp+15, tp+15, tp+15],
+        color='dimgray', name='Column Flange'
+    ))
+    fig.add_trace(go.Mesh3d(
+        x=[col_d/2-0.5, col_d/2, col_d/2, col_d/2-0.5, col_d/2-0.5, col_d/2, col_d/2, col_d/2-0.5],
+        y=[-col_bf/2, -col_bf/2, col_bf/2, col_bf/2, -col_bf/2, -col_bf/2, col_bf/2, col_bf/2],
+        z=[tp, tp, tp, tp, tp+15, tp+15, tp+15, tp+15],
+        color='dimgray', name='Column Flange'
+    ))
+    # เอวเสา (Web)
+    fig.add_trace(go.Mesh3d(
+        x=[-col_d/2+0.5, col_d/2-0.5, col_d/2-0.5, -col_d/2+0.5, -col_d/2+0.5, col_d/2-0.5, col_d/2-0.5, -col_d/2+0.5],
+        y=[-0.25, -0.25, 0.25, 0.25, -0.25, -0.25, 0.25, 0.25],
+        z=[tp, tp, tp, tp, tp+15, tp+15, tp+15, tp+15],
+        color='dimgray', name='Column Web'
+    ))
+
+    # 4. Anchor Bolts (นอตฝัง 4 มุม) - สีแดง
+    bolt_dist_x = (B/2) - 2.0 # ระยะขอบสมมติ 2 นิ้ว
+    bolt_dist_y = (N/2) - 2.0
+    for bx in [-bolt_dist_x, bolt_dist_x]:
+        for by in [-bolt_dist_y, bolt_dist_y]:
+            fig.add_trace(go.Scatter3d(
+                x=[bx, bx], y=[by, by], z=[-10, tp+2],
+                mode='lines', line=dict(color='red', width=8), name='Anchor Bolt'
+            ))
+
+    # 5. แสดงทิศทางของแรง (Forces Representation)
+    # แรงตามแนวแกน Pu (กดลง)
+    fig.add_trace(go.Scatter3d(
+        x=[0, 0], y=[0, 0], z=[tp+20, tp+10],
+        mode='lines+text', line=dict(color='magenta', width=5),
+        text=['', '↓ Pu (Axial)'], textposition='top center', name='Axial Load'
+    ))
+    # แรงเฉือน Vu (ดันออกด้านข้าง)
+    fig.add_trace(go.Scatter3d(
+        x=[0, 5], y=[0, 0], z=[tp+5, tp+5],
+        mode='lines+text', line=dict(color='green', width=5),
+        text=['', '→ Vu (Shear)'], textposition='middle right', name='Shear Load'
+    ))
+    # โมเมนต์ดัด Mu (เส้นโค้งจำลอง)
+    fig.add_trace(go.Scatter3d(
+        x=[-6, 0, 6], y=[0, 0, 0], z=[tp+12, tp+15, tp+12],
+        mode='lines+text', line=dict(color='orange', width=5, dash='dash'),
+        text=['', '↺ Mu (Moment)', ''], textposition='top center', name='Moment'
+    ))
+
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='X (in)', yaxis_title='Y (in)', zaxis_title='Z (in)', aspectmode='data'
+        ),
+        margin=dict(l=0, r=0, b=0, t=0), height=500
+    )
+    return fig
 # ================= 3. เรียกใช้งาน Engine & UI =================
 engine = AISC_LRFD_Engine()
 
 # แบ่งหน้าจอเป็น 2 แท็บ: แท็บคำนวณนอต และแท็บคำนวณรอยเชื่อม
-tab1, tab2 = st.tabs(["Bolt Connection", "Weld Connection"])
+tab1, tab2, tab3 = st.tabs(["Bolt Connection", "Weld Connection", "Base Plate"])
 
 # ----------------- TAB 1: BOLT DESIGN -----------------
 with tab1:
@@ -162,3 +239,53 @@ with tab2:
             st.write(f"- ความหนาประสิทธิผล ($t_e$): {res_weld['effective_throat']} นิ้ว")
             st.write(f"- หน่วยแรงรอยเชื่อมระบุ ($F_{{nw}}$): 42.0 ksi (0.60 * 70 ksi)")
             st.write(f"- กำลังระบุของรอยเชื่อม ($R_n$): {res_weld['nominal_capacity_kips']} kips")
+
+
+
+
+
+
+
+# ================= TAB 3: BASE PLATE DESIGN =================
+with tab3:
+    st.header("การออกแบบแผ่นฐานเสาและตอม่อ (Base Plate & Pedestal)")
+    
+    col1, col2 = st.columns([1, 1.2]) # ให้คอลัมน์ขวากว้างกว่านิดหน่อยเพื่อแสดง 3D
+    
+    with col1:
+        st.subheader("📥 ป้อนข้อมูล (Inputs)")
+        st.markdown("**ขนาดแผ่นฐาน (Base Plate)**")
+        B = st.number_input("ความกว้างแผ่นฐาน B (นิ้ว) ขนานแกน X", min_value=6.0, value=14.0)
+        N = st.number_input("ความยาวแผ่นฐาน N (นิ้ว) ขนานแกน Y", min_value=6.0, value=14.0)
+        tp = st.number_input("ความหนาแผ่นฐาน tp (นิ้ว)", min_value=0.25, value=1.0)
+        
+        st.markdown("**ข้อมูลวัสดุ**")
+        fc_prime = st.number_input("กำลังอัดคอนกรีต fc' (ksi) [เช่น 280 ksc ≈ 4.0 ksi]", min_value=1.0, value=4.0)
+        
+        st.markdown("**แรงที่กระทำ (Factored Loads)**")
+        p_u = st.number_input("แรงตามแนวแกน, Pu (kips) [แรงกด+]", min_value=0.0, value=150.0)
+        v_u_bp = st.number_input("แรงเฉือน, Vu (kips)", min_value=0.0, value=25.0)
+        m_u_bp = st.number_input("โมเมนต์ดัด, Mu (kip-in)", min_value=0.0, value=500.0)
+
+    with col2:
+        st.subheader("📊 ผลการคำนวณและโมเดล (Results & 3D)")
+        
+        # คำนวณ
+        res_bp = engine.calculate_base_plate_bearing(B, N, fc_prime)
+        bp_capacity = res_bp["design_capacity_kips"]
+        
+        st.metric(label="กำลังรับแรงแบกทานของคอนกรีต ($\phi_c P_p$)", value=f"{bp_capacity} kips")
+        
+        # ตรวจสอบเฉพาะแรงกดตามแนวแกนเบื้องต้น (Axial only simplified)
+        bp_util = (p_u / bp_capacity) * 100 if bp_capacity > 0 else 0
+        if p_u <= bp_capacity:
+            st.success(f"✅ ผ่าน (PASSED) - อัตราส่วนรับแรงกดทับ: {round(bp_util, 1)}%")
+        else:
+            st.error(f"❌ ไม่ผ่าน (FAILED) - คอนกรีตรับแรงกดไม่ไหว! อัตราส่วน: {round(bp_util, 1)}%")
+            
+        # แสดงโมเดล 3D แบบเห็นทุก Element และ Force
+        st.markdown("---")
+        st.write("🧊 **3D Element Analysis Model** (แสดงตำแหน่งเสา, แผ่นฐาน, นอตฝัง และทิศทางแรง)")
+        # สมมติขนาดหน้าตัดเสา H-beam (Depth=8, Flange Width=8) สำหรับวาดโมเดล
+        fig_bp_3d = create_3d_base_plate_model(B, N, tp, col_d=8.0, col_bf=8.0)
+        st.plotly_chart(fig_bp_3d, use_container_width=True)
