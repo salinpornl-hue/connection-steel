@@ -92,3 +92,35 @@ class AISC_LRFD_Engine:
             "nominal_capacity_kips": round(nominal_capacity, 2),
             "design_capacity_kips": round(design_capacity, 2)
         }
+    def calculate_base_weld(self, d, bf, tf, tw, weld_size, p_u, v_u, m_u):
+        """
+        ประเมินกำลังรอยเชื่อมรอบโคนเสาแบบง่าย (Simplified Perimeter Weld)
+        สมมติว่าเชื่อมรอบรูป (All-around fillet weld)
+        """
+        # คำนวณความยาวรอยเชื่อมรวมโดยประมาณ (หักมุมตััดต่างๆ ออกเล็กน้อย)
+        L_w = (4 * bf) + (2 * d) - (2 * tw) 
+        
+        # ใช้สมการรอยเชื่อมเดิมที่มีอยู่แล้ว
+        res_weld = self.calculate_weld_capacity(weld_size, L_w, 'E70')
+        capacity = res_weld["design_capacity_kips"]
+        
+        # สมมติฐานรับแรงเฉือนรวมเป็นหลัก (ในเวอร์ชัน MVP)
+        # หากจะคิดเรื่องโมเมนต์ ต้องหา Section Modulus ของกลุ่มรอยเชื่อม (Sw) ซึ่งจะซับซ้อนขึ้น
+        return capacity, L_w
+
+    def calculate_anchor_bolt_tension(self, B, N, m_u, p_u, num_bolts):
+        """
+        คำนวณแรงดึงสูงสุดในนอตฝังเมื่อเกิดโมเมนต์ (Simplified Lever Arm Method)
+        """
+        # สมมติระยะคานงัด (Lever Arm, y) ห่างจากขอบประมาณ 2 นิ้ว
+        lever_arm = N - 4.0 
+        
+        # แรงดึงจากโมเมนต์ หักล้างด้วยแรงกด P_u (กระจายลงนอตครึ่งหนึ่ง)
+        T_u_total = (m_u / lever_arm) - (p_u / 2)
+        
+        if T_u_total <= 0:
+            return 0.0 # ไม่มีแรงดึง นอตรับแค่ Shear
+            
+        # สมมติว่านอตฝั่งที่รับแรงดึงมีจำนวนครึ่งหนึ่งของทั้งหมด
+        T_u_per_bolt = T_u_total / (num_bolts / 2)
+        return round(T_u_per_bolt, 2)
