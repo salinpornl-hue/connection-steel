@@ -255,94 +255,111 @@ with col_result:
     st.plotly_chart(fig, use_container_width=True)
 
     # --- DETAILED CALCULATION TABS ---
+    # --- DETAILED CALCULATION TABS (PREMIUM UI) ---
     tab_weld, tab_plate, tab_bolt = st.tabs(["🔥 1. รอยเชื่อม (Welds)", "🔲 2. แผ่นเพลต (Base Plate)", "🔩 3. สลักเกลียว (Anchor Bolts)"])
     
+    # ---------------- TAB 1: WELD ----------------
     with tab_weld:
-        st.markdown(f"**สมมติฐาน:** ใช้การวิเคราะห์แบบเส้น (Elastic Line Method) รอยเชื่อม E70XX ขนาด **{weld_size_mm} mm**")
-        st.markdown(f"""
-        **1. ภาระที่กระทำต่อรอยเชื่อม (Demand):**
-        * ความยาวเชื่อมรอบปีกเสา: $L_f = 4b_f = 4({bf}) =$ **{l_flange:.1f} mm**
-        * ความยาวเชื่อมรอบเอวเสา: $L_w = 2(d - 2t_f) = 2({d} - 2({tf})) =$ **{l_web:.1f} mm**
-        * แรงเค้นแนวแกน (Axial): 
-            $$f_a = \\frac{{P_u}}{{L_f + L_w}} = \\frac{{{P_u_n}}}{{{l_total}}} = {weld_stress_axial:.3f} \\text{{ kN/mm}}$$
-        * แรงเค้นดัดที่ปีกเสา (Moment): 
-            $$f_m = \\frac{{M_u}}{{2 b_f (d - t_f)}} = \\frac{{{M_u_nmm}}}{{2({bf})({d} - {tf})}} = {weld_stress_moment:.3f} \\text{{ kN/mm}}$$
-        * แรงเค้นเฉือนที่เอวเสา (Shear): 
-            $$f_v = \\frac{{V_u}}{{L_w}} = \\frac{{{V_u_n}}}{{{l_web}}} = {weld_stress_shear:.3f} \\text{{ kN/mm}}$$
-
-        **2. แรงลัพธ์สูงสุด (Maximum Resultant Demand):**
-        * รอยเชื่อมปีกเสารับแรง: $f_{{req,flange}} = f_a + f_m =$ **{total_demand_flange:.3f} kN/mm**
-        * รอยเชื่อมเอวเสารับแรง: $f_{{req,web}} = \\sqrt{{f_a^2 + f_v^2}} =$ **{total_demand_web:.3f} kN/mm**
-        * แรงกระทำสูงสุดต่อรอยเชื่อม: **{max_weld_demand:.3f} kN/mm**
-
-        **3. กำลังรับแรงของรอยเชื่อม (Capacity):**
-        * $$ \\phi R_n = 0.75 \\times 0.60 \\times F_{{EXX}} \\times 0.707 \\times a $$
-        * $$ \\phi R_n = 0.75 \\times 0.60 \\times 490 \\times 0.707 \\times {weld_size_mm} / 1000 = {weld_cap_per_mm:.3f} \\text{{ kN/mm}}$$
-        """)
+        st.info(f"**สมมติฐานการวิเคราะห์:** Elastic Line Method | ลวดเชื่อม E70XX | ขนาดรอยเชื่อมใช้งาน = **{weld_size_mm} mm**")
         
+        with st.container(border=True):
+            st.markdown("##### 📌 ขั้นตอนที่ 1: วิเคราะห์แรงกระทำต่อรอยเชื่อม (Demand)")
+            st.caption(f"ความยาวเชื่อมปีกเสา ($L_f$) = {l_flange:.0f} mm | ความยาวเชื่อมเอวเสา ($L_w$) = {l_web:.0f} mm")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown(f"- **แรงเค้นแนวแกน:** $f_a = \\frac{{P_u}}{{L_f + L_w}} = {weld_stress_axial:.2f}$ kN/mm")
+                st.markdown(f"- **แรงเค้นดัด (ปีกเสา):** $f_m = \\frac{{M_u}}{{2 b_f (d - t_f)}} = {weld_stress_moment:.2f}$ kN/mm")
+            with c2:
+                st.markdown(f"- **แรงเค้นเฉือน (เอวเสา):** $f_v = \\frac{{V_u}}{{L_w}} = {weld_stress_shear:.2f}$ kN/mm")
+            
+            st.divider()
+            st.markdown(f"""
+            **แรงลัพธ์วิกฤต (Maximum Resultant Demand):**
+            - ปีกเสา (รับแรงแกน + ดัด): $f_{{req,f}} = f_a + f_m =$ **{total_demand_flange:.2f} kN/mm**
+            - เอวเสา (รับแรงแกน + เฉือน): $f_{{req,w}} = \\sqrt{{f_a^2 + f_v^2}} =$ **{total_demand_web:.2f} kN/mm**
+            """)
+
+        with st.container(border=True):
+            st.markdown("##### 📌 ขั้นตอนที่ 2: กำลังรับแรงของรอยเชื่อม (Capacity)")
+            st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times F_{{EXX}} \\times 0.707 \\times a $$")
+            st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times 490 \\times 0.707 \\times ({weld_size_mm} / 1000) = {weld_cap_per_mm:.2f} \\text{{ kN/mm}} $$")
+
         if max_weld_demand <= weld_cap_per_mm:
-            st.success(f"✅ รอยเชื่อมผ่านเกณฑ์ (Demand {max_weld_demand:.3f} $\\le$ Capacity {weld_cap_per_mm:.3f} kN/mm)")
+            st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> แรงกระทำสูงสุด <b>{max_weld_demand:.2f} kN/mm</b> $\\le$ ต้านทานได้ <b>{weld_cap_per_mm:.2f} kN/mm</b></div>", unsafe_allow_html=True)
         else:
-            st.error(f"❌ รอยเชื่อมไม่ผ่านเกณฑ์ (Demand {max_weld_demand:.3f} > Capacity {weld_cap_per_mm:.3f} kN/mm)")
+            st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> แรงกระทำสูงสุด <b>{max_weld_demand:.2f} kN/mm</b> > ต้านทานได้ <b>{weld_cap_per_mm:.2f} kN/mm</b> (โปรดเพิ่มขนาดรอยเชื่อม)</div>", unsafe_allow_html=True)
 
+    # ---------------- TAB 2: PLATE ----------------
     with tab_plate:
-        st.markdown(f"**สมมติฐาน:** ตรวจสอบตาม AISC Design Guide 1 (Yield Strength = **{Fy_plate} MPa**)")
-        st.markdown(f"""
-        **1. หน่วยแรงกดบนคอนกรีต (Bearing Pressure):**
-        * พื้นที่หน้าตัดแผ่นเพลต: $A_{{plate}} = B \\times N = {B} \\times {N} =$ **{B*N:,.0f} mm²**
-        * หน่วยแรงกดจริง: 
-            $$f_p = \\frac{{P_u}}{{A_{{plate}}}} = \\frac{{{P_u_n}}}{{ {B} \\times {N} }} = {bearing_actual:.2f} \\text{{ MPa}}$$
-        * กำลังรับแรงกดสูงสุดของคอนกรีต:
-            $$ \\phi_c f_{{p,max}} = 0.65 \\times 0.85 \\times f_c' = 0.65 \\times 0.85 \\times {fc_mpa} = {f_p_max:.2f} \\text{{ MPa}}$$
-        """)
+        st.info(f"**สมมติฐานการวิเคราะห์:** AISC Design Guide 1 | เหล็กแผ่น SS400 (Yield Strength = **{Fy_plate:.0f} MPa**)")
         
-        if bearing_actual <= f_p_max:
-            st.info(f"✅ คอนกรีตรับแรงกดได้ ($f_p$ {bearing_actual:.2f} $\\le$ {f_p_max:.2f} MPa)")
-        else:
-            st.error(f"❌ คอนกรีตรับแรงกดไม่ไหว (กรุณาเพิ่มขนาดเพลต B หรือ N)")
+        with st.container(border=True):
+            st.markdown("##### 📌 ขั้นตอนที่ 1: ตรวจสอบหน่วยแรงกดบนคอนกรีต (Bearing Pressure)")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**หน่วยแรงกดที่เกิดขึ้นจริง (Actual):**")
+                st.markdown(f"$$ f_p = \\frac{{P_u}}{{B \\times N}} = {bearing_actual:.2f} \\text{{ MPa}} $$")
+            with c2:
+                st.markdown("**กำลังรับแรงกดสูงสุด (Capacity):**")
+                st.markdown(f"$$ \\phi_c f_{{p,max}} = 0.65 (0.85 f_c') = {f_p_max:.2f} \\text{{ MPa}} $$")
+                
+            if bearing_actual <= f_p_max:
+                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **สถานะ:** คอนกรีตรับแรงกดได้ ($f_p \\le \\phi_c f_{{p,max}}$)")
+            else:
+                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;❌ **สถานะ:** คอนกรีตรับแรงกดไม่ไหว (โปรดขยายขนาดแผ่นเพลต)")
 
-        st.markdown(f"""
-        **2. ความหนาของแผ่นเพลตที่ต้องการ (Required Thickness):**
-        * ระยะยื่นแนว Y (m): $m = (N - 0.95d) / 2 = ({N} - 0.95({d})) / 2 =$ **{m_arm:.2f} mm**
-        * ระยะยื่นแนว X (n): $n = (B - 0.80b_f) / 2 = ({B} - 0.80({bf})) / 2 =$ **{n_arm:.2f} mm**
-        * ระยะวิกฤต $l = \\max(m, n) =$ **{max(m_arm, n_arm):.2f} mm**
-        * คำนวณความหนาที่ต้องการ:
-            $$ t_{{req}} = l \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {max(m_arm, n_arm):.2f} \\sqrt{{\\frac{{2({bearing_actual:.2f})}}{{0.90({Fy_plate})}}}} = {t_req:.2f} \\text{{ mm}}$$
-        """)
-        
+        with st.container(border=True):
+            st.markdown("##### 📌 ขั้นตอนที่ 2: คำนวณความหนาแผ่นเพลต (Required Thickness)")
+            st.markdown(f"- ระยะยื่นแนว Y ($m$) = $({N} - 0.95({d})) / 2 = {m_arm:.1f}$ mm")
+            st.markdown(f"- ระยะยื่นแนว X ($n$) = $({B} - 0.80({bf})) / 2 = {n_arm:.1f}$ mm")
+            
+            l_crit = max(m_arm, n_arm)
+            st.markdown(f"**ระยะวิกฤต ($l$) = $\\max(m, n) = {l_crit:.1f}$ mm**")
+            st.markdown(f"$$ t_{{req}} = l \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {l_crit:.1f} \\sqrt{{\\frac{{2({bearing_actual:.2f})}}{{0.90({Fy_plate})}}}} = {t_req:.2f} \\text{{ mm}} $$")
+
         if t_req <= tp:
-            st.success(f"✅ แผ่นเพลตหนาพอ ($t_{{req}}$ {t_req:.2f} $\\le$ หนาจริง {tp} mm)")
+            st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> ความหนาที่ต้องการ <b>{t_req:.2f} mm</b> $\\le$ หนาจริง <b>{tp} mm</b></div>", unsafe_allow_html=True)
         else:
-            st.error(f"❌ แผ่นเพลตบางเกินไป ($t_{{req}}$ {t_req:.2f} > หนาจริง {tp} mm)")
+            st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> ความหนาที่ต้องการ <b>{t_req:.2f} mm</b> > หนาจริง <b>{tp} mm</b> (โปรดเพิ่มความหนาเพลต)</div>", unsafe_allow_html=True)
 
+    # ---------------- TAB 3: BOLT ----------------
     with tab_bolt:
-        st.markdown(f"**สมมติฐาน:** โบลต์ **{bolt_name}** รับแรงเฉือนและแรงดึงอิสระแบบยืดหยุ่น (Elastic Method)")
-        st.markdown(f"""
-        **1. การกระจายแรงสู่สลักเกลียว (Bolt Demands):**
-        * โมเมนต์ความเฉื่อยของกลุ่มโบลต์รอบแกน X: $I_y = \\sum y^2 =$ **{I_y_group:,.0f} mm²**
-        * แรงดึงสูงสุดต่อโบลต์ (วิเคราะห์ที่โบลต์ไกลสุดทางฝั่งรับแรงดึง):
-            $$T_{{u,max}} = \\frac{{M_u \\cdot y_{{max}}}}{{I_y}} - \\frac{{P_u}}{{N_{{bolt}}}} = {max_t_actual:.2f} \\text{{ kN}}$$
-        * แรงเฉือนต่อโบลต์ (สมมติแชร์แรงเท่ากัน):
-            $$V_{{u,bolt}} = \\frac{{V_u}}{{N_{{bolt}}}} = \\frac{{{v_u_kn}}}{{{num_bolts}}} = {max_v_actual:.2f} \\text{{ kN}}$$
-
-        **2. กำลังรับแรงของสลักเกลียว (Bolt Capacities):**
-        * กำลังรับแรงดึง: 
-            $$ \\phi R_{{nt}} = 0.75 \\times F_{{nt}} \\times A_b = 0.75 \\times {bolt_profile['F_nt']} \\times {bolt_profile['area']} / 1000 = {bolt_t_cap:.2f} \\text{{ kN}}$$
-        * กำลังรับแรงเฉือน:
-            $$ \\phi R_{{nv}} = 0.75 \\times F_{{nv}} \\times A_b = 0.75 \\times {bolt_profile['F_nv']} \\times {bolt_profile['area']} / 1000 = {bolt_v_cap:.2f} \\text{{ kN}}$$
-        """)
+        st.info(f"**สมมติฐานการวิเคราะห์:** Elastic Method | สลักเกลียว **{bolt_name}** | จำนวนโบลต์ = **{num_bolts} ตัว**")
         
-        # Checking conditions
+        with st.container(border=True):
+            st.markdown("##### 📌 ขั้นตอนที่ 1: การกระจายแรงสู่สลักเกลียว (Bolt Demands)")
+            st.markdown(f"โมเมนต์ความเฉื่อยของกลุ่มโบลต์รอบแกน X ($I_y$) = **{I_y_group:,.0f} mm²**")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**แรงดึงวิกฤต (Max Tension):**")
+                st.markdown(f"$$ T_{{u,max}} = \\frac{{M_u \\cdot y_{{max}}}}{{I_y}} - \\frac{{P_u}}{{N_{{bolt}}}} = {max_t_actual:.2f} \\text{{ kN}} $$")
+            with c2:
+                st.markdown("**แรงเฉือนต่อตัว (Max Shear):**")
+                st.markdown(f"$$ V_{{u,bolt}} = \\frac{{V_u}}{{N_{{bolt}}}} = {max_v_actual:.2f} \\text{{ kN}} $$")
+
+        with st.container(border=True):
+            st.markdown("##### 📌 ขั้นตอนที่ 2: กำลังรับแรงของสลักเกลียว (Bolt Capacities)")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**กำลังรับแรงดึง ($T_{{cap}}$):**")
+                st.markdown(f"$$ \\phi R_{{nt}} = 0.75 F_{{nt}} A_b = {bolt_t_cap:.2f} \\text{{ kN}} $$")
+            with c2:
+                st.markdown("**กำลังรับแรงเฉือน ($V_{{cap}}$):**")
+                st.markdown(f"$$ \\phi R_{{nv}} = 0.75 F_{{nv}} A_b = {bolt_v_cap:.2f} \\text{{ kN}} $$")
+
+        # Result Summary
         t_pass = max_t_actual <= bolt_t_cap
         v_pass = max_v_actual <= bolt_v_cap
         
-        c1, c2 = st.columns(2)
-        if t_pass:
-            c1.success(f"✅ แรงดึงผ่าน ({max_t_actual:.2f} $\\le$ {bolt_t_cap:.2f} kN)")
+        if t_pass and v_pass:
+            st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> สลักเกลียวสามารถรับแรงดึงและแรงเฉือนได้ปลอดภัยตามมาตรฐาน</div>", unsafe_allow_html=True)
         else:
-            c1.error(f"❌ แรงดึงไม่ผ่าน ({max_t_actual:.2f} > {bolt_t_cap:.2f} kN)")
+            errors = []
+            if not t_pass: errors.append(f"แรงดึงวิกฤต ({max_t_actual:.2f} kN) > ต้านทานได้ ({bolt_t_cap:.2f} kN)")
+            if not v_pass: errors.append(f"แรงเฉือน ({max_v_actual:.2f} kN) > ต้านทานได้ ({bolt_v_cap:.2f} kN)")
+            error_text = "<br>".join([f"- {e}" for e in errors])
             
-        if v_pass:
-            c2.success(f"✅ แรงเฉือนผ่าน ({max_v_actual:.2f} $\\le$ {bolt_v_cap:.2f} kN)")
-        else:
-            c2.error(f"❌ แรงเฉือนไม่ผ่าน ({max_v_actual:.2f} > {bolt_v_cap:.2f} kN)")
+            st.markdown(f"<div class='danger-card'>❌ <b>FAIL: สลักเกลียวรับแรงไม่ไหว</b><br>{error_text}</div>", unsafe_allow_html=True)
