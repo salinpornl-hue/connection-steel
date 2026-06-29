@@ -291,7 +291,7 @@ with col_result:
         **1. หน่วยแรงกดบนคอนกรีต (Bearing Pressure):**
         * พื้นที่หน้าตัดแผ่นเพลต: $A_{{plate}} = B \\times N = {B} \\times {N} =$ **{B*N:,.0f} mm²**
         * หน่วยแรงกดจริง: 
-            $$f_p = \\frac{{P_u}}{{A_{{plate}}}} = \\frac{{{P_u_n}}}{{{B \\times N}}} = {bearing_actual:.2f} \\text{{ MPa}}$$
+            $$f_p = \\frac{{P_u}}{{A_{{plate}}}} = \\frac{{{P_u_n}}}{{ {B} \\times {N} }} = {bearing_actual:.2f} \\text{{ MPa}}$$
         * กำลังรับแรงกดสูงสุดของคอนกรีต:
             $$ \\phi_c f_{{p,max}} = 0.65 \\times 0.85 \\times f_c' = 0.65 \\times 0.85 \\times {fc_mpa} = {f_p_max:.2f} \\text{{ MPa}}$$
         """)
