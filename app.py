@@ -348,16 +348,19 @@ with col_result:
 
     # --- 3D INTERACTIVE GRAPHICS ENGINE ---
     fig = go.Figure()
+    # Base Plate & Column
     fig.add_trace(go.Mesh3d(x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2], y=[-N/2, -N/2, N/2, N/2, -N/2, -N/2, N/2, N/2], z=[0, 0, 0, 0, tp, tp, tp, tp], color='#475569', opacity=0.85, name='Plate'))
     fig.add_trace(go.Mesh3d(x=[-bf/2, bf/2, bf/2, -bf/2, -bf/2, bf/2, bf/2, -bf/2], y=[-d/2, -d/2, -d/2+tf, -d/2+tf, -d/2, -d/2, -d/2+tf, -d/2+tf], z=[tp, tp, tp, tp, tp+350, tp+350, tp+350, tp+350], color='#1e293b', name='Column'))
     fig.add_trace(go.Mesh3d(x=[-bf/2, bf/2, bf/2, -bf/2, -bf/2, bf/2, bf/2, -bf/2], y=[d/2-tf, d/2-tf, d/2, d/2, d/2-tf, d/2-tf, d/2, d/2], z=[tp, tp, tp, tp, tp+350, tp+350, tp+350, tp+350], color='#1e293b', showlegend=False))
     fig.add_trace(go.Mesh3d(x=[-tw/2, tw/2, tw/2, -tw/2, -tw/2, tw/2, tw/2, -tw/2], y=[-d/2+tf, -d/2+tf, d/2-tf, d/2-tf, -d/2+tf, -d/2+tf, d/2-tf, d/2-tf], z=[tp, tp, tp, tp, tp+350, tp+350, tp+350, tp+350], color='#334155', showlegend=False))
 
+    # Welds
     fig.add_trace(go.Scatter3d(x=[-bf/2, bf/2], y=[-d/2, -d/2], z=[tp+2, tp+2], mode='lines', line=dict(color='#06b6d4', width=8), name='Flange Welds'))
     fig.add_trace(go.Scatter3d(x=[-bf/2, bf/2], y=[d/2, d/2], z=[tp+2, tp+2], mode='lines', line=dict(color='#06b6d4', width=8), showlegend=False))
     fig.add_trace(go.Scatter3d(x=[tw/2, tw/2], y=[-d/2+tf, d/2-tf], z=[tp+2, tp+2], mode='lines', line=dict(color='#a855f7', width=6), name='Web Welds'))
     fig.add_trace(go.Scatter3d(x=[-tw/2, -tw/2], y=[-d/2+tf, d/2-tf], z=[tp+2, tp+2], mode='lines', line=dict(color='#a855f7', width=6), showlegend=False))
 
+    # Anchor Bolts & Tension Indicators
     for _, row in edited_df.iterrows():
         bx, by, tf_bolt, b_id = row["X (mm)"], row["Y (mm)"], row["Tension (kN)"], row["Bolt ID"]
         bolt_col = '#ef4444' if tf_bolt > 0 else '#22c55e'
@@ -366,7 +369,25 @@ with col_result:
             z_top = tp + 20 + 30 + (tf_bolt * 1.0)
             fig.add_trace(go.Scatter3d(x=[bx, bx], y=[by, by], z=[tp+20, z_top], mode='lines', line=dict(color='#b91c1c', width=8), showlegend=False))
 
-    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[tp+480, tp+350], mode='lines', line=dict(color='black', width=10), name='Pu Force'))
+    # [NEW 3D ENGINE] 1. Pu Force Vector Arrow (Axial Compression)
+    fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, 0], z=[tp+460, tp+360], mode='lines', line=dict(color='#ef4444', width=8), name='Pu Axial Force'))
+    fig.add_trace(go.Cone(x=[0], y=[0], z=[tp+360], u=[0], v=[0], w=[-45], colorscale=[[0, '#ef4444'], [1, '#ef4444']], showscale=False, sizemode='absolute', sizeref=25, name='Pu Tip'))
+
+    # [NEW 3D ENGINE] 2. Vu Force Vector Arrow (Horizontal Shear)
+    fig.add_trace(go.Scatter3d(x=[0, 0], y=[-N/2 - 70, -N/2 - 10], z=[tp+10, tp+10], mode='lines', line=dict(color='#10b981', width=8), name='Vu Shear Force'))
+    fig.add_trace(go.Cone(x=[0], y=[-N/2 - 10], z=[tp+10], u=[0], v=[45], w=[0], colorscale=[[0, '#10b981'], [1, '#10b981']], showscale=False, sizemode='absolute', sizeref=25, name='Vu Tip'))
+
+    # [NEW 3D ENGINE] 3. Mu Moment Curved Rotational Vector (Bending Arc)
+    arc_x, arc_y, arc_z = [], [], []
+    R_mu = 65.0
+    for i in range(30):
+        ang = -math.pi/3 + (i * 1.3 * math.pi / 29)
+        arc_x.append(bf/2 + 25)
+        arc_y.append(R_mu * math.sin(ang))
+        arc_z.append(tp + 200 + R_mu * math.cos(ang))
+    fig.add_trace(go.Scatter3d(x=arc_x, y=arc_y, z=arc_z, mode='lines', line=dict(color='#f59e0b', width=8), name='Mu Bending Moment'))
+    fig.add_trace(go.Cone(x=[arc_x[-1]], y=[arc_y[-1]], z=[arc_z[-1]], u=[0], v=[40 * math.cos(-math.pi/3 + 1.3*math.pi)], w=[-40 * math.sin(-math.pi/3 + 1.3*math.pi)], colorscale=[[0, '#f59e0b'], [1, '#f59e0b']], showscale=False, sizemode='absolute', sizeref=25, name='Mu Tip'))
+
     fig.update_layout(scene=dict(aspectmode='data', camera=dict(eye=dict(x=1.3, y=-1.3, z=1.1))), margin=dict(l=0, r=0, b=0, t=0), height=400)
     st.plotly_chart(fig, use_container_width=True)
 
