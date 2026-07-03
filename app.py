@@ -5,7 +5,7 @@ import streamlit as st
 import plotly.graph_objects as go
 
 # ==========================================
-# 1. METRIC DATABASE & AISC J3 STANDARDS
+# 1. METRIC DATABASE & STANDARDS
 # ==========================================
 THAI_H_BEAM_PROFILES = {
     "H 200x200x8x12": {"d": 200.0, "bf": 200.0, "tw": 8.0, "tf": 12.0},
@@ -106,7 +106,8 @@ def solve_bearing_block_bolts(P_u, M_u, B, N, bolt_coords, q_max):
             continue
         if (r1 >= 0) != (r2 >= 0):
             lo, hi = grid[i], grid[i + 1]
-            for _ in range(60):
+            # [ปรับปรุง] ลดรอบ Bisection ลงเหลือ 30 รอบ ช่วยประหยัด CPU 
+            for _ in range(30):
                 mid = 0.5 * (lo + hi)
                 sm = state(mid)
                 rm = (sm[5] - M_u) if sm else r1
@@ -170,6 +171,32 @@ with col_input:
     selected_profile = st.selectbox("Connected steel column section (H-Beam TIS):", list(THAI_H_BEAM_PROFILES.keys()), index=2)
     prof = THAI_H_BEAM_PROFILES[selected_profile]
 
+    # [ปรับปรุง] ระบบจัดการเวอร์ชันและอัปเดตเพลทเมื่อเปลี่ยนขนาดเสา (Auto-Update Plate on Column Change)
+    if "active_profile" not in st.session_state:
+        st.session_state["active_profile"] = selected_profile
+        st.session_state["plate_version"] = 0
+        st.session_state["plate_B"] = float(math.ceil((prof["bf"] + 150) / 10) * 10)
+        st.session_state["plate_N"] = float(math.ceil((prof["d"] + 160) / 10) * 10)
+        init_x, init_y = (prof["bf"] / 2.0) + 45.0, (prof["d"] / 2.0) + 50.0
+        st.session_state["grid_data"] = pd.DataFrame({
+            "Bolt ID": ["B1", "B2", "B3", "B4", "B5", "B6"],
+            "X (mm)": [-init_x, init_x, -init_x, init_x, -init_x, init_x],
+            "Y (mm)": [init_y, init_y, 0.0, 0.0, -init_y, -init_y]
+        })
+
+    if st.session_state["active_profile"] != selected_profile:
+        st.session_state["active_profile"] = selected_profile
+        st.session_state["plate_version"] += 1
+        st.session_state["plate_B"] = float(math.ceil((prof["bf"] + 150) / 10) * 10)
+        st.session_state["plate_N"] = float(math.ceil((prof["d"] + 160) / 10) * 10)
+        init_x, init_y = (prof["bf"] / 2.0) + 45.0, (prof["d"] / 2.0) + 50.0
+        st.session_state["grid_data"] = pd.DataFrame({
+            "Bolt ID": ["B1", "B2", "B3", "B4", "B5", "B6"],
+            "X (mm)": [-init_x, init_x, -init_x, init_x, -init_x, init_x],
+            "Y (mm)": [init_y, init_y, 0.0, 0.0, -init_y, -init_y]
+        })
+        st.rerun()
+
     with st.container(border=True):
         st.caption("📐 Steel section dimensions (mm)")
         c1, c2 = st.columns(2)
@@ -196,19 +223,11 @@ with col_input:
         m_u_knm = cx1.number_input("Moment Mu (kN-m)", value=140.0)
         fc_mpa = cx2.number_input("Concrete f'c (MPa)", value=28.0)
         
-        # เพิ่มอินพุตสำหรับเช็กคอนกรีต
         h_ef = cx1.number_input("Embedment Depth h_ef (mm)", value=250.0, min_value=50.0)
         c_edge = cx2.number_input("Concrete Edge c_a1 (mm)", value=200.0, min_value=10.0)
 
     with st.container(border=True):
         st.caption("🔩 Base plate and anchor bolt sizes")
-        rec_B = math.ceil((bf + 150) / 10) * 10
-        rec_N = math.ceil((d + 160) / 10) * 10
-
-        if "plate_version" not in st.session_state: st.session_state["plate_version"] = 0
-        if "plate_B" not in st.session_state: st.session_state["plate_B"] = float(rec_B)
-        if "plate_N" not in st.session_state: st.session_state["plate_N"] = float(rec_N)
-
         B = st.number_input("Plate width B (mm)", value=st.session_state["plate_B"], key=f"B_{st.session_state['plate_version']}")
         N = st.number_input("Plate length N (mm)", value=st.session_state["plate_N"], key=f"N_{st.session_state['plate_version']}")
 
@@ -227,21 +246,11 @@ with col_matrix:
     st.markdown("<div class='column-title'>🎯 2. Bolt Coordinates & Layout</div>", unsafe_allow_html=True)
     st.caption("Freely edit the X, Y coordinates on the plate. The origin (0,0) is at the center of the steel column.")
 
-    init_x = (bf / 2.0) + 45.0
-    init_y = (d / 2.0) + 50.0
-
-    if "active_profile" not in st.session_state or st.session_state["active_profile"] != selected_profile:
-        st.session_state["active_profile"] = selected_profile
-        st.session_state["grid_data"] = pd.DataFrame({
-            "Bolt ID": ["B1", "B2", "B3", "B4", "B5", "B6"],
-            "X (mm)": [-init_x, init_x, -init_x, init_x, -init_x, init_x],
-            "Y (mm)": [init_y, init_y, 0.0, 0.0, -init_y, -init_y]
-        })
-
     if st.button("🤖 Auto-Resize (fix bolt coords + auto-enlarge plate)", use_container_width=True):
         fixed_matrix = st.session_state["grid_data"].copy()
         max_abs_x = 0.0
         max_abs_y = 0.0
+        init_x, init_y = (bf / 2.0) + 45.0, (d / 2.0) + 50.0
 
         for idx, row in fixed_matrix.iterrows():
             curr_x, curr_y = row["X (mm)"], row["Y (mm)"]
@@ -271,6 +280,11 @@ with col_matrix:
     edited_df = st.data_editor(st.session_state["grid_data"], num_rows="dynamic", use_container_width=True)
     st.session_state["grid_data"] = edited_df
     num_bolts = len(edited_df)
+
+    # [ปรับปรุง] Guard Clause เพื่อป้องกัน Zero-Bolt Crash
+    if num_bolts == 0:
+        st.error("❌ ข้อมูลขัดข้อง: ต้องมี Anchor Bolt อย่างน้อย 1 ตัวในระบบเพื่อทำการคำนวณ โปรดเพิ่มโบลต์เพื่อดำเนินการต่อ")
+        st.stop()
 
     geometric_errors = []
     min_s_req = 2.67 * d_b
@@ -364,7 +378,8 @@ with col_result:
 
     m_arm = (N - 0.95 * d) / 2.0
     n_arm = (B - 0.80 * bf) / 2.0
-    t_req = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
+    
+    t_req_compression = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
 
     bolt_coords = list(zip(edited_df["X (mm)"].astype(float), edited_df["Y (mm)"].astype(float)))
     bolt_sol = solve_bearing_block_bolts(P_u_n, M_u_nmm, B, N, bolt_coords, f_p_max)
@@ -376,6 +391,24 @@ with col_result:
     bolt_case = bolt_sol.get("case", "unknown")
 
     max_t_actual = max(tensions) if tensions else 0
+    
+    t_req_tension = 0.0
+    f_arm = 0.0
+    b_eff = 1.0
+    if max_t_actual > 0:
+        max_f_arm = 0.0
+        for _, row in edited_df.iterrows():
+            if row["Tension (kN)"] > 0:
+                arm = max(0.0, abs(row["Y (mm)"]) - (d / 2.0))
+                if arm > max_f_arm: max_f_arm = arm
+        f_arm = max_f_arm
+        if f_arm > 0:
+            b_eff = min(float(B), 3.5 * f_arm)
+            M_u_tension = max_t_actual * 1000.0 * f_arm
+            t_req_tension = math.sqrt((4.0 * M_u_tension) / (0.90 * Fy_plate * b_eff))
+
+    t_req = max(t_req_compression, t_req_tension)
+
     bolt_t_cap = (0.75 * bolt_profile["F_nt"] * bolt_profile["area"]) / 1000.0
     bolt_v_cap = (0.75 * bolt_profile["F_nv"] * bolt_profile["area"]) / 1000.0
     max_v_actual = v_u_kn / num_bolts if num_bolts > 0 else 0.0
@@ -391,6 +424,17 @@ with col_result:
 
     # --- 3D INTERACTIVE GRAPHICS ENGINE ---
     fig = go.Figure()
+    
+    # [ปรับปรุง] 3D Visual Conflict Zone 
+    cz_x = bf/2.0 + 35.0
+    cz_y = d/2.0 + 35.0
+    fig.add_trace(go.Mesh3d(
+        x=[-cz_x, cz_x, cz_x, -cz_x, -cz_x, cz_x, cz_x, -cz_x],
+        y=[-cz_y, -cz_y, cz_y, cz_y, -cz_y, -cz_y, cz_y, cz_y],
+        z=[tp, tp, tp, tp, tp+150, tp+150, tp+150, tp+150],
+        color='#ef4444', opacity=0.15, name='Conflict Zone', hoverinfo='skip'
+    ))
+
     fig.add_trace(go.Mesh3d(x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2], y=[-N/2, -N/2, N/2, N/2, -N/2, -N/2, N/2, N/2], z=[0, 0, 0, 0, tp, tp, tp, tp], color='#475569', opacity=0.85, name='Plate'))
     fig.add_trace(go.Mesh3d(x=[-bf/2, bf/2, bf/2, -bf/2, -bf/2, bf/2, bf/2, -bf/2], y=[-d/2, -d/2, -d/2+tf, -d/2+tf, -d/2, -d/2, -d/2+tf, -d/2+tf], z=[tp, tp, tp, tp, tp+350, tp+350, tp+350, tp+350], color='#1e293b', name='Column'))
     fig.add_trace(go.Mesh3d(x=[-bf/2, bf/2, bf/2, -bf/2, -bf/2, bf/2, bf/2, -bf/2], y=[d/2-tf, d/2-tf, d/2, d/2, d/2-tf, d/2-tf, d/2, d/2], z=[tp, tp, tp, tp, tp+350, tp+350, tp+350, tp+350], color='#1e293b', showlegend=False))
@@ -519,12 +563,26 @@ with tab_plate:
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 2: Calculate required plate thickness (Required Thickness)")
-        st.markdown(f"- Y-direction cantilever ($m$) = $({N} - 0.95({d})) / 2 = {m_arm:.1f}$ mm")
-        st.markdown(f"- X-direction cantilever ($n$) = $({B} - 0.80({bf})) / 2 = {n_arm:.1f}$ mm")
-
-        l_crit = max(m_arm, n_arm)
-        st.markdown(f"**Critical distance ($l$) = $\\max(m, n) = {l_crit:.1f}$ mm**")
-        st.markdown(f"$$ t_{{req}} = l \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {l_crit:.1f} \\sqrt{{\\frac{{2({bearing_actual:.2f})}}{{0.90({Fy_plate})}}}} = {t_req:.2f} \\text{{ mm}} $$")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**🔹 ฝั่งรับแรงกด (Compression Side Check):**")
+            st.markdown(f"- ระยะยื่น Cantilever ($m$) = {m_arm:.1f} mm")
+            st.markdown(f"- ระยะยื่น Cantilever ($n$) = {n_arm:.1f} mm")
+            st.markdown(f"$$ t_{{req,comp}} = \\max(m,n) \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {t_req_compression:.2f} \\text{{ mm}} $$")
+            
+        with c2:
+            st.markdown("**🔸 ฝั่งรับแรงดึง (Tension Side Check):**")
+            if max_t_actual > 0 and f_arm > 0:
+                st.markdown(f"- แรงดึงวิกฤตสลักเกลียว ($T_{{u,max}}$) = {max_t_actual:.2f} kN")
+                st.markdown(f"- ระยะงัดถึงปีกเสา ($f_{{arm}}$) = {f_arm:.1f} mm")
+                st.markdown(f"- ความกว้างประสิทธิผล ($b_{{eff}}$) = {b_eff:.1f} mm")
+                st.markdown(f"$$ t_{{req,tens}} = \\sqrt{{\\frac{{4 (T_{{u,max}} \\cdot f_{{arm}})}}{{0.90 F_y b_{{eff}}}}}} = {t_req_tension:.2f} \\text{{ mm}} $$")
+            else:
+                st.markdown("<div style='color: gray; padding-top: 10px;'>ไม่มีแรงดึงเกิดขึ้นในสลักเกลียว หรือไม่มีโบลต์อยู่นอกแนวปีกเสา (ไม่ต้องคำนวณหนาฝั่งดึง)</div>", unsafe_allow_html=True)
+        
+        st.divider()
+        st.markdown(f"**สรุปความหนาที่ควบคุมการออกแบบ:** $t_{{req}} = \\max({t_req_compression:.2f}, {t_req_tension:.2f}) = \\textbf{{{t_req:.2f} mm}}$")
 
     if t_req <= tp:
         st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Required thickness <b>{t_req:.2f} mm</b> $\\le$ Actual thickness <b>{tp} mm</b></div>", unsafe_allow_html=True)
