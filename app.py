@@ -35,18 +35,14 @@ def solve_bearing_block_bolts(P_u, M_u, B, N, bolt_coords, q_max):
     if n == 0:
         return {"ok": False, "case": "no-bolts", "tensions": []}
 
-    # Smallest bearing length able to carry P_u alone (C = q_max*B*Y >= P_u).
     Y_min = P_u / (q_max * B) if (q_max * B) > 0 else 0.0
 
-    # Case A — full / partial bearing (e <= N/2): bearing alone equilibrates
-    # both P_u and M_u, so bolts take ZERO tension (shear only).
     e = M_u / P_u if P_u > 0 else float("inf")
     if P_u > 0 and e <= N / 2.0:
         return {"ok": True, "case": "bearing-only", "Y": None, "C": P_u,
                 "total_T": 0.0, "y_NA": None,
                 "tensions": [0.0] * n, "resid_F": 0.0, "resid_M": 0.0}
 
-    # Case B — uplift / no-compression: solve for Y.
     if Y_min >= N - 1.0:
         return {"ok": False, "case": "pu-too-large",
                 "reason": "P_u exceeds max bearing (q_max*B*N); enlarge plate.",
@@ -54,17 +50,16 @@ def solve_bearing_block_bolts(P_u, M_u, B, N, bolt_coords, q_max):
 
     def state(Y):
         y_NA = -N / 2.0 + Y
-        tb = [y for (_, y) in bolts if y > y_NA + 1e-6]   # bolts in tension
+        tb = [y for (_, y) in bolts if y > y_NA + 1e-6]
         if not tb:
             return None
-        C = q_max * B * Y                                  # bearing resultant
+        C = q_max * B * Y
         arms = [y - y_NA for y in tb]
-        k = max(0.0, (C - P_u) / sum(arms))               # from SigmaF=0
-        Ts = [k * a for a in arms]                         # per-bolt tension (N)
+        k = max(0.0, (C - P_u) / sum(arms))
+        Ts = [k * a for a in arms]
         M_resist = C * (N / 2.0 - Y / 2.0) + sum(T * y for T, y in zip(Ts, tb))
         return y_NA, tb, Ts, C, k, M_resist
 
-    # Scan Y for a sign change in (M_resist - M_u), then bisect.
     Y_lo, Y_hi = max(Y_min, 1.0), N - 1.0
     samples = 400
     grid = [Y_lo + (Y_hi - Y_lo) * i / samples for i in range(samples + 1)]
@@ -97,7 +92,6 @@ def solve_bearing_block_bolts(P_u, M_u, B, N, bolt_coords, q_max):
                 "tensions": [0.0] * n}
 
     y_NA, tb, Ts, C, k, _ = solution
-    # Map per-bolt tensions back to the original bolt order.
     tensions = []
     ti = 0
     for (_, y) in bolts:
@@ -231,6 +225,7 @@ with col_matrix:
     st.session_state["grid_data"] = edited_df
     num_bolts = len(edited_df)
 
+    # --- COMPUTATIONAL GEOMETRY ENGINE ---
     geometric_errors = []
     min_s_req = 2.67 * d_b
     min_edge_req = bolt_profile["min_edge"]
@@ -280,7 +275,7 @@ with col_result:
     total_demand_web = math.sqrt(weld_stress_axial**2 + weld_stress_shear**2)
     max_weld_demand = max(total_demand_flange, total_demand_web)
 
-    F_exx = 490.0 # MPa
+    F_exx = 490.0
     weld_cap_per_mm = 0.75 * 0.60 * F_exx * 0.707 * weld_size_mm / 1000.0
 
     min_weld_req = 5 if tp <= 13 else (6 if tp <= 19 else 8)
@@ -323,7 +318,11 @@ with col_result:
 
     bearing_actual = f_p_peak
 
-    # 🔹 [CRITICAL FIX] ย้ายตัวคำนวณสลักเกลียวขึ้นมาทำก่อน เพื่อป้องกัน NameError ของตัวแปร max_t_actual
+    m_arm = (N - 0.95 * d) / 2.0
+    n_arm = (B - 0.80 * bf) / 2.0
+    Fy_plate = 245.0
+    t_req = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
+
     bolt_coords = list(zip(edited_df["X (mm)"].astype(float), edited_df["Y (mm)"].astype(float)))
     bolt_sol = solve_bearing_block_bolts(P_u_n, M_u_nmm, B, N, bolt_coords, f_p_max)
     if bolt_sol["ok"]:
@@ -332,37 +331,8 @@ with col_result:
         edited_df["Tension (kN)"] = [0.0] * num_bolts
     tensions = list(edited_df["Tension (kN)"])
     bolt_case = bolt_sol.get("case", "unknown")
+
     max_t_actual = max(tensions) if tensions else 0
-
-    # 🔹 [CRITICAL FIX] ย้ายตัวคำนวณตรวจสอบความหนาทั้งฝั่งแรงกดและแรงดึงมาสรุปรวมกันตรงนี้
-    m_arm = (N - 0.95 * d) / 2.0
-    n_arm = (B - 0.80 * bf) / 2.0
-    Fy_plate = 245.0
-    
-    # 1. ความหนาที่ต้องการฝั่งแรงกด (Compression Side)
-    t_req_compression = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
-    
-    # 2. ความหนาที่ต้องการฝั่งแรงดึง (Tension Side)
-    t_req_tension = 0.0
-    f_arm = 0.0
-    b_eff = 1.0
-    if max_t_actual > 0:
-        max_f_arm = 0.0
-        for _, row in edited_df.iterrows():
-            if row["Tension (kN)"] > 0:
-                arm = max(0.0, abs(row["Y (mm)"]) - (d / 2.0))
-                if arm > max_f_arm:
-                    max_f_arm = arm
-        f_arm = max_f_arm
-        if f_arm > 0:
-            b_eff = min(float(B), 3.5 * f_arm)
-            M_u_tension = max_t_actual * 1000.0 * f_arm
-            t_req_tension = math.sqrt((4.0 * M_u_tension) / (0.90 * Fy_plate * b_eff))
-
-    # ความหนาที่ใช้ควบคุมการออกแบบ (Governing thickness)
-    t_req = max(t_req_compression, t_req_tension)
-
-    # คำนวณขีดความสามารถของโบลต์ตัวอื่น ๆ ถัดไป
     bolt_t_cap = (0.75 * bolt_profile["F_nt"] * bolt_profile["area"]) / 1000.0
     bolt_v_cap = (0.75 * bolt_profile["F_nv"] * bolt_profile["area"]) / 1000.0
     max_v_actual = v_u_kn / num_bolts if num_bolts > 0 else 0.0
@@ -400,196 +370,188 @@ with col_result:
     fig.update_layout(scene=dict(aspectmode='data', camera=dict(eye=dict(x=1.3, y=-1.3, z=1.1))), margin=dict(l=0, r=0, b=0, t=0), height=400)
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- DETAILED CALCULATION TABS ---
-    tab_weld, tab_plate, tab_bolt = st.tabs(["🔥 1. Welds", "🔲 2. Base Plate", "🔩 3. Anchor Bolts"])
 
-    # ---------------- TAB 1: WELD ----------------
-    with tab_weld:
-        st.info(f"**Analysis assumptions:** Elastic Line Method | E70XX electrodes | Actual weld size = **{weld_size_mm} mm**")
+# =========================================================================
+# 3. DETAILED CALCULATION TABS (ย้ายออกนอกคอลัมน์เพื่อให้แสดงผล Full-Width)
+# =========================================================================
+st.markdown("<br><hr>", unsafe_allow_html=True)
+st.markdown("### 📝 รายการคำนวณอย่างละเอียด (Detailed Calculation Reports)")
 
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 1: Analyze force demand on the weld (Demand)")
-            st.caption(f"Flange weld length ($L_f$) = {l_flange:.0f} mm | Web weld length ($L_w$) = {l_web:.0f} mm")
+tab_weld, tab_plate, tab_bolt = st.tabs(["🔥 1. Welds Calculation", "🔲 2. Base Plate Design", "🔩 3. Anchor Bolts Check"])
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown(f"- **Axial stress:** $f_a = \\frac{{P_u}}{{L_f + L_w}} = {weld_stress_axial:.2f}$ kN/mm")
-                st.markdown(f"- **Bending stress (flange):** $f_m = \\frac{{M_u}}{{2 b_f (d - t_f)}} = {weld_stress_moment:.2f}$ kN/mm")
-            with c2:
-                st.markdown(f"- **Shear stress (web):** $f_v = \\frac{{V_u}}{{L_w}} = {weld_stress_shear:.2f}$ kN/mm")
+# ---------------- TAB 1: WELD ----------------
+with tab_weld:
+    st.info(f"**Analysis assumptions:** Elastic Line Method | E70XX electrodes | Actual weld size = **{weld_size_mm} mm**")
 
-            st.divider()
-            st.markdown(f"""
-            **Critical resultant demand (Maximum Resultant Demand):**
-            - Flange (axial + bending): $f_{{req,f}} = f_a + f_m =$ **{total_demand_flange:.2f} kN/mm**
-            - Web (axial + shear): $f_{{req,w}} = \\sqrt{{f_a^2 + f_v^2}} =$ **{total_demand_web:.2f} kN/mm**
-            """)
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 1: Analyze force demand on the weld (Demand)")
+        st.caption(f"Flange weld length ($L_f$) = {l_flange:.0f} mm | Web weld length ($L_w$) = {l_web:.0f} mm")
 
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 2: Weld capacity (Capacity)")
-            st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times F_{{EXX}} \\times 0.707 \\times a $$")
-            st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times 490 \\times 0.707 \\times ({weld_size_mm} / 1000) = {weld_cap_per_mm:.2f} \\text{{ kN/mm}} $$")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"- **Axial stress:** $f_a = \\frac{{P_u}}{{L_f + L_w}} = {weld_stress_axial:.2f}$ kN/mm")
+            st.markdown(f"- **Bending stress (flange):** $f_m = \\frac{{M_u}}{{2 b_f (d - t_f)}} = {weld_stress_moment:.2f}$ kN/mm")
+        with c2:
+            st.markdown(f"- **Shear stress (web):** $f_v = \\frac{{V_u}}{{L_w}} = {weld_stress_shear:.2f}$ kN/mm")
 
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 3: Recommended weld size (Sizing)")
-            st.markdown(f"- **Constructability minimum** (by plate thickness): **{min_weld_req} mm**")
-            st.markdown(f"- **Strength requirement** ($a_{{strength}} = f_{{req}} / \\phi R_{{n,per\\,mm}}$): **{strength_weld_req:.2f} mm**")
-            st.markdown(f"$$ a_{{req}} = \\max({min_weld_req},\\; \\lceil {strength_weld_req:.2f} \\rceil) = \\textbf{{{final_weld_size} mm}} $$")
-            if weld_size_mm >= final_weld_size:
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Actual weld size ({weld_size_mm} mm) ≥ recommended ({final_weld_size} mm)**")
-            else:
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚠️ **Actual weld size ({weld_size_mm} mm) < recommended ({final_weld_size} mm) — size up**")
+        st.divider()
+        st.markdown(f"""
+        **Critical resultant demand (Maximum Resultant Demand):**
+        - Flange (axial + bending): $f_{{req,f}} = f_a + f_m =$ **{total_demand_flange:.2f} kN/mm**
+        - Web (axial + shear): $f_{{req,w}} = \\sqrt{{f_a^2 + f_v^2}} =$ **{total_demand_web:.2f} kN/mm**
+        """)
 
-        if max_weld_demand <= weld_cap_per_mm:
-            st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Max demand <b>{max_weld_demand:.2f} kN/mm</b> $\\le$ Capacity <b>{weld_cap_per_mm:.2f} kN/mm</b></div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 2: Weld capacity (Capacity)")
+        st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times F_{{EXX}} \\times 0.707 \\times a $$")
+        st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times 490 \\times 0.707 \\times ({weld_size_mm} / 1000) = {weld_cap_per_mm:.2f} \\text{{ kN/mm}} $$")
+
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 3: Recommended weld size (Sizing)")
+        st.markdown(f"- **Constructability minimum** (by plate thickness): **{min_weld_req} mm**")
+        st.markdown(f"- **Strength requirement** ($a_{{strength}} = f_{{req}} / \\phi R_{{n,per\\,mm}}$): **{strength_weld_req:.2f} mm**")
+        st.markdown(f"$$ a_{{req}} = \\max({min_weld_req},\\; \\lceil {strength_weld_req:.2f} \\rceil) = \\textbf{{{final_weld_size} mm}} $$")
+        if weld_size_mm >= final_weld_size:
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Actual weld size ({weld_size_mm} mm) ≥ recommended ({final_weld_size} mm)**")
         else:
-            st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Max demand <b>{max_weld_demand:.2f} kN/mm</b> > Capacity <b>{weld_cap_per_mm:.2f} kN/mm</b> (please increase the weld size)</div>", unsafe_allow_html=True)
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚠️ **Actual weld size ({weld_size_mm} mm) < recommended ({final_weld_size} mm) — size up**")
 
-    # ---------------- TAB 2: PLATE ----------------
-    with tab_plate:
-        st.info(f"**Analysis assumptions:** AISC Design Guide 1 | SS400 plate steel (Yield Strength = **{Fy_plate:.0f} MPa**)")
+    if max_weld_demand <= weld_cap_per_mm:
+        st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Max demand <b>{max_weld_demand:.2f} kN/mm</b> $\\le$ Capacity <b>{weld_cap_per_mm:.2f} kN/mm</b></div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Max demand <b>{max_weld_demand:.2f} kN/mm</b> > Capacity <b>{weld_cap_per_mm:.2f} kN/mm</b> (please increase the weld size)</div>", unsafe_allow_html=True)
 
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 1: Check concrete bearing pressure (Bearing Pressure)")
-            st.markdown(f"Load eccentricity $e = M_u/P_u = {ecc:.1f}$ mm  |  Kern $= N/6 = {e_kern:.1f}$ mm  |  Edge $= N/2 = {e_edge:.1f}$ mm")
+# ---------------- TAB 2: PLATE ----------------
+with tab_plate:
+    st.info(f"**Analysis assumptions:** AISC Design Guide 1 | SS400 plate steel (Yield Strength = **{Fy_plate:.0f} MPa**)")
 
-            regime_map = {
-                "no-compression": ("⚠️ No axial compression — bearing cannot form; bolts/uplift govern (#4).", "danger"),
-                "full":           ("ℹ️ Full contact: trapezoidal pressure over the whole plate ($e \\le N/6$).", "info"),
-                "partial":        ("ℹ️ Partial contact: triangular pressure over length $Y$ from the compression edge ($N/6 < e < N/2$).", "info"),
-                "uplift":         ("⚠️ Resultant outside the plate ($e \\ge N/2$): bearing alone cannot equilibrate — bolts must anchor the uplift.", "danger"),
-            }
-            banner_text, banner_kind = regime_map.get(bearing_case, ("Unknown bearing case.", "danger"))
-            banner_cls = "rec-card" if banner_kind == "info" else "danger-card"
-            st.markdown(f"<div class='{banner_cls}'>{banner_text}</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 1: Check concrete bearing pressure (Bearing Pressure)")
+        st.markdown(f"Load eccentricity $e = M_u/P_u = {ecc:.1f}$ mm  |  Kern $= N/6 = {e_kern:.1f}$ mm  |  Edge $= N/2 = {e_edge:.1f}$ mm")
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Peak bearing pressure (Actual):**")
-                if bearing_case == "full":
-                    st.markdown(f"$$ f_{{p,max}} = \\frac{{P_u}}{{BN}}\\left(1 + \\frac{{6e}}{{N}}\\right) = {f_p_peak:.2f} \\text{{ MPa}} $$")
-                    st.caption(f"Tension-side edge: $f_{{p,min}} = {f_p_min:.2f}$ MPa")
-                elif bearing_case == "partial":
-                    st.markdown(f"$Y = 1.5N - 3e = 1.5({N:.0f}) - 3({ecc:.0f}) = $ **{Y_bearing:.1f} mm** (bearing length)")
-                    st.markdown(f"$$ f_{{p,peak}} = \\frac{{2P_u}}{{B \\cdot Y}} = {f_p_peak:.2f} \\text{{ MPa}} $$")
-                else:
-                    st.markdown(f"$$ f_{{p,peak}} = {f_p_peak:.2f} \\text{{ MPa}} \\; (\\text{{capacity used as governing value}}) $$")
-            with c2:
-                st.markdown("**Max bearing capacity (Capacity):**")
-                st.markdown(f"$$ \\phi_c f_{{p,max}} = 0.65 (0.85 f_c') = {f_p_max:.2f} \\text{{ MPa}} $$")
+        regime_map = {
+            "no-compression": ("⚠️ No axial compression — bearing cannot form; bolts/uplift govern (#4).", "danger"),
+            "full":           ("ℹ️ Full contact: trapezoidal pressure over the whole plate ($e \\le N/6$).", "info"),
+            "partial":        ("ℹ️ Partial contact: triangular pressure over length $Y$ from the compression edge ($N/6 < e < N/2$).", "info"),
+            "uplift":         ("⚠️ Resultant outside the plate ($e \\ge N/2$): bearing alone cannot equilibrate — bolts must anchor the uplift.", "danger"),
+        }
+        banner_text, banner_kind = regime_map.get(bearing_case, ("Unknown bearing case.", "danger"))
+        banner_cls = "rec-card" if banner_kind == "info" else "danger-card"
+        st.markdown(f"<div class='{banner_cls}'>{banner_text}</div>", unsafe_allow_html=True)
 
-            if bearing_ok:
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Status:** Concrete bearing is adequate ($f_{{p,peak}} = {f_p_peak:.2f} \\le \\phi_c f_{{p,max}} = {f_p_max:.2f}$)")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Peak bearing pressure (Actual):**")
+            if bearing_case == "full":
+                st.markdown(f"$$ f_{{p,max}} = \\frac{{P_u}}{{BN}}\\left(1 + \\frac{{6e}}{{N}}\\right) = {f_p_peak:.2f} \\text{{ MPa}} $$")
+                st.caption(f"Tension-side edge: $f_{{p,min}} = {f_p_min:.2f}$ MPa")
+            elif bearing_case == "partial":
+                st.markdown(f"$Y = 1.5N - 3e = 1.5({N:.0f}) - 3({ecc:.0f}) = $ **{Y_bearing:.1f} mm** (bearing length)")
+                st.markdown(f"$$ f_{{p,peak}} = \\frac{{2P_u}}{{B \\cdot Y}} = {f_p_peak:.2f} \\text{{ MPa}} $$")
             else:
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;❌ **Status:** Concrete bearing exceeded — enlarge the plate (B, N) or increase $f'_c$")
+                st.markdown(f"$$ f_{{p,peak}} = {f_p_peak:.2f} \\text{{ MPa}} \\; (\\text{{capacity used as governing value}}) $$")
+        with c2:
+            st.markdown("**Max bearing capacity (Capacity):**")
+            st.markdown(f"$$ \\phi_c f_{{p,max}} = 0.65 (0.85 f_c') = {f_p_max:.2f} \\text{{ MPa}} $$")
 
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 2: Calculate required plate thickness (Required Thickness)")
-            
+        if bearing_ok:
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Status:** Concrete bearing is adequate ($f_{{p,peak}} = {f_p_peak:.2f} \\le \\phi_c f_{{p,max}} = {f_p_max:.2f}$)")
+        else:
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;❌ **Status:** Concrete bearing exceeded — enlarge the plate (B, N) or increase $f'_c$")
+
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 2: Calculate required plate thickness (Required Thickness)")
+        st.markdown(f"- Y-direction cantilever ($m$) = $({N} - 0.95({d})) / 2 = {m_arm:.1f}$ mm")
+        st.markdown(f"- X-direction cantilever ($n$) = $({B} - 0.80({bf})) / 2 = {n_arm:.1f}$ mm")
+
+        l_crit = max(m_arm, n_arm)
+        st.markdown(f"**Critical distance ($l$) = $\\max(m, n) = {l_crit:.1f}$ mm**")
+        st.markdown(f"$$ t_{{req}} = l \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {l_crit:.1f} \\sqrt{{\\frac{{2({bearing_actual:.2f})}}{{0.90({Fy_plate})}}}} = {t_req:.2f} \\text{{ mm}} $$")
+
+    if t_req <= tp:
+        st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Required thickness <b>{t_req:.2f} mm</b> $\\le$ Actual thickness <b>{tp} mm</b></div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Required thickness <b>{t_req:.2f} mm</b> > Actual thickness <b>{tp} mm</b> (please increase the plate thickness)</div>", unsafe_allow_html=True)
+
+# ---------------- TAB 3: BOLT ----------------
+with tab_bolt:
+    st.info(f"**Analysis method:** Bearing-block equilibrium (AISC Design Guide 1) | Bolts **{bolt_name}** | Number of bolts = **{num_bolts}**")
+
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 1: Force distribution to the bolts (Bolt Demands)")
+        bolt_group_I_label = f"Bolt-group moment of inertia about the X-axis ($I_y$) = **{I_y_group:,.0f} mm²** (reference only)"
+
+        if bolt_case == "bearing-only":
+            st.markdown(bolt_group_I_label)
+            st.markdown(
+                "Bearing alone equilibrates both $P_u$ and $M_u$ "
+                "($e = M_u/P_u \\le N/2$), so **all bolts take zero tension** — they resist shear only."
+            )
+            st.markdown(f"$$ T_{{u,max}} = 0.00 \\text{{ kN}} \\qquad V_{{u,bolt}} = \\frac{{V_u}}{{N_{{bolt}}}} = {max_v_actual:.2f} \\text{{ kN}} $$")
+
+        elif bolt_case == "uplift" and bolt_sol["ok"]:
+            Y_b = bolt_sol["Y"]; C_b = bolt_sol["C"]; k_b = bolt_sol["k"]
+            y_NA_b = bolt_sol["y_NA"]; T_tot = bolt_sol["total_T_kN"]
+            st.markdown(
+                "Bearing alone **cannot** equilibrate the load ($e > N/2$). A uniform bearing block "
+                f"of stress $\\phi_c 0.85 f'_c = {f_p_max:.2f}$ MPa forms over length $Y$ at the "
+                "compression edge, and the bolts above the neutral axis resist the net tension "
+                "elastically (force proportional to distance above $y_{NA}$)."
+            )
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("**🔹 ฝั่งรับแรงกด (Compression Side Check):**")
-                st.markdown(f"- ระยะยื่น Cantilever ($m$) = {m_arm:.1f} mm")
-                st.markdown(f"- ระยะยื่น Cantilever ($n$) = {n_arm:.1f} mm")
-                st.markdown(f"$$ t_{{req,comp}} = \\max(m,n) \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {t_req_compression:.2f} \\text{{ mm}} $$")
-                
+                st.markdown("**Bearing block:**")
+                st.markdown(f"$Y = $ **{Y_b:.1f} mm** &nbsp;→&nbsp; $y_{{NA}} = -N/2 + Y = $ **{y_NA_b:.1f} mm**")
+                st.markdown(f"$C = q_{{max}} B Y = $ **{C_b/1000.0:.1f} kN**")
             with c2:
-                st.markdown("**🔸 ฝั่งรับแรงดึง (Tension Side Check):**")
-                if max_t_actual > 0 and f_arm > 0:
-                    st.markdown(f"- แรงดึงวิกฤตสลักเกลียว ($T_{{u,max}}$) = {max_t_actual:.2f} kN")
-                    st.markdown(f"- ระยะงัดถึงปีกเสา ($f_{{arm}}$) = {f_arm:.1f} mm")
-                    st.markdown(f"- ความกว้างประสิทธิผล ($b_{{eff}}$) = {b_eff:.1f} mm")
-                    st.markdown(f"$$ t_{{req,tens}} = \\sqrt{{\\frac{{4 (T_{{u,max}} \\cdot f_{{arm}})}}{{0.90 F_y b_{{eff}}}}}} = {t_req_tension:.2f} \\text{{ mm}} $$")
-                else:
-                    st.markdown("<div style='color: gray; padding-top: 10px;'>ไม่มีแรงดึงเกิดขึ้นในสลักเกลียว หรือไม่มีโบลต์อยู่นอกแนวปีกเสา (ไม่ต้องคำนวณหนาฝั่งดึง)</div>", unsafe_allow_html=True)
-            
-            st.divider()
-            st.markdown(f"**สรุปความหนาที่ควบคุมการออกแบบ:** $t_{{req}} = \\max({t_req_compression:.2f}, {t_req_tension:.2f}) = \\textbf{{{t_req:.2f}}}$ mm")
+                st.markdown("**Bolt tensions:**")
+                st.markdown(f"$T_i = k(y_i - y_{{NA}})$, &nbsp; $k = $ **{k_b:.1f} N/mm**")
+                st.markdown(f"$\\Sigma T = $ **{T_tot:.1f} kN** &nbsp;←&nbsp; checks $C - P_u = {(C_b-P_u_n)/1000.0:.1f}$ kN")
 
-        if t_req <= tp:
-            st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Required thickness <b>{t_req:.2f} mm</b> $\\le$ Actual thickness <b>{tp} mm</b></div>", unsafe_allow_html=True)
+            tbl = edited_df[["Bolt ID", "Y (mm)", "Tension (kN)"]].copy()
+            tbl["Y (mm)"] = tbl["Y (mm)"].map("{:.0f}".format)
+            tbl["Tension (kN)"] = tbl["Tension (kN)"].map("{:.2f}".format)
+            st.dataframe(tbl, use_container_width=True, hide_index=True)
+
+            st.markdown(
+                f"**Critical tension:** $T_{{u,max}} = $ **{max_t_actual:.2f} kN** &nbsp;|&nbsp; "
+                f"**Shear per bolt:** $V_{{u,bolt}} = V_u/N_{{bolt}} = $ **{max_v_actual:.2f} kN**"
+            )
+            st.caption(f"Equilibrium check: ΣF residual = {bolt_sol['resid_F']:.2e} N, ΣM residual = {bolt_sol['resid_M']:.2e} N·mm (≈0 confirms consistency)")
+
         else:
-            st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Required thickness <b>{t_req:.2f} mm</b> > Actual thickness <b>{tp} mm</b> (please increase the plate thickness)</div>", unsafe_allow_html=True)
+            st.markdown(bolt_group_I_label)
+            st.markdown(f"<div class='danger-card'>⚠️ <b>Bearing-block solver:</b> {bolt_sol.get('reason','could not converge')} — bolt tensions not available; revise the connection.</div>", unsafe_allow_html=True)
 
-    # ---------------- TAB 3: BOLT ----------------
-    with tab_bolt:
-        st.info(f"**Analysis method:** Bearing-block equilibrium (AISC Design Guide 1) | Bolts **{bolt_name}** | Number of bolts = **{num_bolts}**")
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 2: Bolt capacities (Bolt Capacities)")
 
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 1: Force distribution to the bolts (Bolt Demands)")
-            bolt_group_I_label = f"Bolt-group moment of inertia about the X-axis ($I_y$) = **{I_y_group:,.0f} mm²** (reference only)"
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Tension capacity ($T_{{cap}}$):**")
+            st.markdown(f"$$ \\phi R_{{nt}} = 0.75 F_{{nt}} A_b = {bolt_t_cap:.2f} \\text{{ kN}} $$")
+        with c2:
+            st.markdown("**Shear capacity ($V_{{cap}}$):**")
+            st.markdown(f"$$ \\phi R_{{nv}} = 0.75 F_{{nv}} A_b = {bolt_v_cap:.2f} \\text{{ kN}} $$")
 
-            if bolt_case == "bearing-only":
-                st.markdown(bolt_group_I_label)
-                st.markdown(
-                    "Bearing alone equilibrates both $P_u$ and $M_u$ "
-                    "($e = M_u/P_u \\le N/2$), so **all bolts take zero tension** — they resist shear only."
-                )
-                st.markdown(f"$$ T_{{u,max}} = 0.00 \\text{{ kN}} \\qquad V_{{u,bolt}} = \\frac{{V_u}}{{N_{{bolt}}}} = {max_v_actual:.2f} \\text{{ kN}} $$")
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 3: Combined tension + shear interaction (AISC J3.7)")
+        st.caption("When a bolt resists both tension and shear at the same time, its tensile capacity is reduced.")
+        st.markdown(f"Required shear stress $f_{{rv}} = V_{{u,bolt}}/A_b = {max_v_actual*1000.0:.0f}/{A_b:.0f} = $ **{f_rv:.1f} MPa**")
+        st.markdown(f"$$ F'_{{nt}} = 1.3 F_{{nt}} - \\frac{{F_{{nt}}}}{{\\phi F_{{nv}}}} f_{{rv}} = 1.3({F_nt_b:.0f}) - \\frac{{{F_nt_b:.0f}}}{{0.75({F_nv_b:.0f})}}({f_rv:.1f}) = {F_nt_prime:.1f} \\text{{ MPa}} \\le F_{{nt}} $$")
+        st.markdown(f"**Reduced tension capacity:** $\\phi R'_{{nt}} = 0.75 F'_{{nt}} A_b = $ **{bolt_t_cap_int:.2f} kN**")
+        st.markdown(f"Critical tension demand $T_{{u,max}} =$ **{max_t_actual:.2f} kN** → "
+                    f"($T_{{u,max}} / \\phi R'_{{nt}} =$ **{max_t_actual/bolt_t_cap_int:.2f}**)")
 
-            elif bolt_case == "uplift" and bolt_sol["ok"]:
-                Y_b = bolt_sol["Y"]; C_b = bolt_sol["C"]; k_b = bolt_sol["k"]
-                y_NA_b = bolt_sol["y_NA"]; T_tot = bolt_sol["total_T_kN"]
-                st.markdown(
-                    "Bearing alone **cannot** equilibrate the load ($e > N/2$). A uniform bearing block "
-                    f"of stress $\\phi_c 0.85 f'_c = {f_p_max:.2f}$ MPa forms over length $Y$ at the "
-                    "compression edge, and the bolts above the neutral axis resist the net tension "
-                    "elastically (force proportional to distance above $y_{NA}$)."
-                )
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**Bearing block:**")
-                    st.markdown(f"$Y = $ **{Y_b:.1f} mm** &nbsp;→&nbsp; $y_{{NA}} = -N/2 + Y = $ **{y_NA_b:.1f} mm**")
-                    st.markdown(f"$C = q_{{max}} B Y = $ **{C_b/1000.0:.1f} kN**")
-                with c2:
-                    st.markdown("**Bolt tensions:**")
-                    st.markdown(f"$T_i = k(y_i - y_{{NA}})$, &nbsp; $k = $ **{k_b:.1f} N/mm**")
-                    st.markdown(f"$\\Sigma T = $ **{T_tot:.1f} kN** &nbsp;←&nbsp; checks $C - P_u = {(C_b-P_u_n)/1000.0:.1f}$ kN")
+    t_pass = max_t_actual <= bolt_t_cap_int
+    v_pass = max_v_actual <= bolt_v_cap
 
-                tbl = edited_df[["Bolt ID", "Y (mm)", "Tension (kN)"]].copy()
-                tbl["Y (mm)"] = tbl["Y (mm)"].map("{:.0f}".format)
-                tbl["Tension (kN)"] = tbl["Tension (kN)"].map("{:.2f}".format)
-                st.dataframe(tbl, use_container_width=True, hide_index=True)
+    if t_pass and v_pass:
+        st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Bolts safely resist combined tension, shear, and their interaction per AISC J3.7</div>", unsafe_allow_html=True)
+    else:
+        errors = []
+        if not t_pass: errors.append(f"Critical tension ({max_t_actual:.2f} kN) > Reduced capacity φR'nt ({bolt_t_cap_int:.2f} kN)")
+        if not v_pass: errors.append(f"Shear ({max_v_actual:.2f} kN) > Capacity φRnv ({bolt_v_cap:.2f} kN)")
+        error_text = "<br>".join([f"- {e}" for e in errors])
 
-                st.markdown(
-                    f"**Critical tension:** $T_{{u,max}} = $ **{max_t_actual:.2f} kN** &nbsp;|&nbsp; "
-                    f"**Shear per bolt:** $V_{{u,bolt}} = V_u/N_{{bolt}} = $ **{max_v_actual:.2f} kN**"
-                )
-                st.caption(f"Equilibrium check: ΣF residual = {bolt_sol['resid_F']:.2e} N, ΣM residual = {bolt_sol['resid_M']:.2e} N·mm (≈0 confirms consistency)")
-
-            else:
-                st.markdown(bolt_group_I_label)
-                st.markdown(f"<div class='danger-card'>⚠️ <b>Bearing-block solver:</b> {bolt_sol.get('reason','could not converge')} — bolt tensions not available; revise the connection.</div>", unsafe_allow_html=True)
-
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 2: Bolt capacities (Bolt Capacities)")
-
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Tension capacity ($T_{{cap}}$):**")
-                st.markdown(f"$$ \\phi R_{{nt}} = 0.75 F_{{nt}} A_b = {bolt_t_cap:.2f} \\text{{ kN}} $$")
-            with c2:
-                st.markdown("**Shear capacity ($V_{{cap}}$):**")
-                st.markdown(f"$$ \\phi R_{{nv}} = 0.75 F_{{nv}} A_b = {bolt_v_cap:.2f} \\text{{ kN}} $$")
-
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 3: Combined tension + shear interaction (AISC J3.7)")
-            st.caption("When a bolt resists both tension and shear at the same time, its tensile capacity is reduced.")
-            st.markdown(f"Required shear stress $f_{{rv}} = V_{{u,bolt}}/A_b = {max_v_actual*1000.0:.0f}/{A_b:.0f} = $ **{f_rv:.1f} MPa**")
-            st.markdown(f"$$ F'_{{nt}} = 1.3 F_{{nt}} - \\frac{{F_{{nt}}}}{{\\phi F_{{nv}}}} f_{{rv}} = 1.3({F_nt_b:.0f}) - \\frac{{{F_nt_b:.0f}}}{{0.75({F_nv_b:.0f})}}({f_rv:.1f}) = {F_nt_prime:.1f} \\text{{ MPa}} \\le F_{{nt}} $$")
-            st.markdown(f"**Reduced tension capacity:** $\\phi R'_{{nt}} = 0.75 F'_{{nt}} A_b = $ **{bolt_t_cap_int:.2f} kN**")
-            st.markdown(f"Critical tension demand $T_{{u,max}} =$ **{max_t_actual:.2f} kN** → "
-                        f"($T_{{u,max}} / \\phi R'_{{nt}} =$ **{max_t_actual/bolt_t_cap_int:.2f}**)")
-
-        t_pass = max_t_actual <= bolt_t_cap_int
-        v_pass = max_v_actual <= bolt_v_cap
-
-        if t_pass and v_pass:
-            st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Bolts safely resist combined tension, shear, and their interaction per AISC J3.7</div>", unsafe_allow_html=True)
-        else:
-            errors = []
-            if not t_pass: errors.append(f"Critical tension ({max_t_actual:.2f} kN) > Reduced capacity φR'nt ({bolt_t_cap_int:.2f} kN)")
-            if not v_pass: errors.append(f"Shear ({max_v_actual:.2f} kN) > Capacity φRnv ({bolt_v_cap:.2f} kN)")
-            error_text = "<br>".join([f"- {e}" for e in errors])
-
-            st.markdown(f"<div class='danger-card'>❌ <b>FAIL: Bolts cannot resist the loads</b><br>{error_text}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='danger-card'>❌ <b>FAIL: Bolts cannot resist the loads</b><br>{error_text}</div>", unsafe_allow_html=True)
