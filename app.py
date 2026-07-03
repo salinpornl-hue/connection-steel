@@ -25,7 +25,6 @@ THAI_ANCHOR_BOLTS = {
 
 THAI_PLATE_THICKNESSES = [12, 16, 19, 22, 25, 28, 32, 38, 50]
 
-# --- เพิ่มฐานข้อมูลเกรดวัสดุสำหรับเหล็กแผ่นและลวดเชื่อม ---
 STEEL_PLATE_GRADES = {
     "SS400 (Fy = 245 MPa)": {"Fy": 245.0, "Fu": 400.0},
     "SM490 (Fy = 325 MPa)": {"Fy": 325.0, "Fu": 490.0},
@@ -38,11 +37,32 @@ WELD_ELECTRODE_GRADES = {
     "E80XX (F_exx = 550 MPa)": {"F_exx": 550.0}
 }
 
+# --- ฟังก์ชันเช็กกำลังคอนกรีต (ACI 318 Simplified) ---
+def check_concrete_capacities(f_c_prime, h_ef, c_edge, d_b):
+    phi_pullout = 0.70
+    A_brg = 1.5 * (math.pi * (d_b**2) / 4.0) 
+    N_p = 8.0 * A_brg * f_c_prime
+    phi_N_pn = (phi_pullout * N_p) / 1000.0
+    
+    A_N0 = 9.0 * (h_ef ** 2)
+    A_N = A_N0 
+    if c_edge < 1.5 * h_ef:
+        A_N = (c_edge + 1.5 * h_ef) * (3.0 * h_ef)
+    
+    N_b = 10.0 * math.sqrt(f_c_prime) * (h_ef ** 1.5)
+    
+    psi_ed = 1.0
+    if c_edge < 1.5 * h_ef:
+        psi_ed = 0.7 + 0.3 * (c_edge / (1.5 * h_ef))
+        
+    N_cb = (A_N / A_N0) * psi_ed * N_b
+    phi_breakout = 0.70
+    phi_N_cb = (phi_breakout * N_cb) / 1000.0
+    
+    return {"phi_N_cb": phi_N_cb, "phi_N_pn": phi_N_pn}
+
 
 def solve_bearing_block_bolts(P_u, M_u, B, N, bolt_coords, q_max):
-    """Solve the coupled bearing-block + anchor-bolt equilibrium for a moment
-    base plate in the uplift regime (AISC Design Guide 1, simplified method).
-    """
     bolts = [(x, y) for (x, y) in bolt_coords]
     n = len(bolts)
     if n == 0:
@@ -122,7 +142,7 @@ def solve_bearing_block_bolts(P_u, M_u, B, N, bolt_coords, q_max):
 
 st.set_page_config(page_title="AISC Ultra-Matrix Connection Engine", layout="wide")
 
-# CSS Styling - UI Refactoring
+# CSS Styling
 st.markdown("""
     <style>
     .main-title { font-size: 2.0rem; font-weight: 800; color: #1e293b; text-align: left; padding-bottom: 2px; }
@@ -158,7 +178,6 @@ with col_input:
         tw = c1.number_input("Web thickness tw", value=prof["tw"])
         tf = c2.number_input("Flange thickness tf", value=prof["tf"])
 
-    # --- เพิ่ม Section เลือกเกรดของวัสดุใน UI ---
     with st.container(border=True):
         st.caption("🏗️ Material Properties (เกรดวัสดุ)")
         cx_m1, cx_m2 = st.columns(2)
@@ -170,12 +189,16 @@ with col_input:
         F_exx = WELD_ELECTRODE_GRADES[selected_weld_grade]["F_exx"]
 
     with st.container(border=True):
-        st.caption("⚡ Factored loads acting on the joint (LRFD Load)")
+        st.caption("⚡ Factored loads & Concrete info")
         cx1, cx2 = st.columns(2)
         p_u_kn = cx1.number_input("Axial comp. Pu (kN)", value=500.0)
         v_u_kn = cx2.number_input("Shear Vu (kN)", value=100.0)
         m_u_knm = cx1.number_input("Moment Mu (kN-m)", value=140.0)
         fc_mpa = cx2.number_input("Concrete f'c (MPa)", value=28.0)
+        
+        # เพิ่มอินพุตสำหรับเช็กคอนกรีต
+        h_ef = cx1.number_input("Embedment Depth h_ef (mm)", value=250.0, min_value=50.0)
+        c_edge = cx2.number_input("Concrete Edge c_a1 (mm)", value=200.0, min_value=10.0)
 
     with st.container(border=True):
         st.caption("🔩 Base plate and anchor bolt sizes")
@@ -249,7 +272,6 @@ with col_matrix:
     st.session_state["grid_data"] = edited_df
     num_bolts = len(edited_df)
 
-    # --- COMPUTATIONAL GEOMETRY ENGINE ---
     geometric_errors = []
     min_s_req = 2.67 * d_b
     min_edge_req = bolt_profile["min_edge"]
@@ -282,7 +304,6 @@ with col_matrix:
 with col_result:
     st.markdown("<div class='column-title'>📊 3. Engineering Summary & 3D Model</div>", unsafe_allow_html=True)
 
-    # --- ENGINEERING MECHANICS CALCULATION ---
     P_u_n, V_u_n, M_u_nmm = p_u_kn * 1000.0, v_u_kn * 1000.0, m_u_knm * 1000000.0
 
     I_y_group = sum(edited_df["Y (mm)"]**2) if num_bolts > 0 else 1.0
@@ -299,7 +320,6 @@ with col_result:
     total_demand_web = math.sqrt(weld_stress_axial**2 + weld_stress_shear**2)
     max_weld_demand = max(total_demand_flange, total_demand_web)
 
-    # นำ F_exx ที่ดึงมาจากเกรดที่เลือกในฐานข้อมูลมาใช้งานคำนวณตรงนี้แทนค่าเดิมที่เป็นค่าคงที่
     weld_cap_per_mm = 0.75 * 0.60 * F_exx * 0.707 * weld_size_mm / 1000.0
 
     min_weld_req = 5 if tp <= 13 else (6 if tp <= 19 else 8)
@@ -344,8 +364,6 @@ with col_result:
 
     m_arm = (N - 0.95 * d) / 2.0
     n_arm = (B - 0.80 * bf) / 2.0
-    
-    # นำ Fy_plate ที่มาจากฐานข้อมูลเกรดที่ผู้ใช้เลือกในสเต็ปแรกมาใช้งานจริง
     t_req = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
 
     bolt_coords = list(zip(edited_df["X (mm)"].astype(float), edited_df["Y (mm)"].astype(float)))
@@ -373,19 +391,16 @@ with col_result:
 
     # --- 3D INTERACTIVE GRAPHICS ENGINE ---
     fig = go.Figure()
-    # Base Plate & Column
     fig.add_trace(go.Mesh3d(x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2], y=[-N/2, -N/2, N/2, N/2, -N/2, -N/2, N/2, N/2], z=[0, 0, 0, 0, tp, tp, tp, tp], color='#475569', opacity=0.85, name='Plate'))
     fig.add_trace(go.Mesh3d(x=[-bf/2, bf/2, bf/2, -bf/2, -bf/2, bf/2, bf/2, -bf/2], y=[-d/2, -d/2, -d/2+tf, -d/2+tf, -d/2, -d/2, -d/2+tf, -d/2+tf], z=[tp, tp, tp, tp, tp+350, tp+350, tp+350, tp+350], color='#1e293b', name='Column'))
     fig.add_trace(go.Mesh3d(x=[-bf/2, bf/2, bf/2, -bf/2, -bf/2, bf/2, bf/2, -bf/2], y=[d/2-tf, d/2-tf, d/2, d/2, d/2-tf, d/2-tf, d/2, d/2], z=[tp, tp, tp, tp, tp+350, tp+350, tp+350, tp+350], color='#1e293b', showlegend=False))
     fig.add_trace(go.Mesh3d(x=[-tw/2, tw/2, tw/2, -tw/2, -tw/2, tw/2, tw/2, -tw/2], y=[-d/2+tf, -d/2+tf, d/2-tf, d/2-tf, -d/2+tf, -d/2+tf, d/2-tf, d/2-tf], z=[tp, tp, tp, tp, tp+350, tp+350, tp+350, tp+350], color='#334155', showlegend=False))
 
-    # Welds
     fig.add_trace(go.Scatter3d(x=[-bf/2, bf/2], y=[-d/2, -d/2], z=[tp+2, tp+2], mode='lines', line=dict(color='#06b6d4', width=8), name='Flange Welds'))
     fig.add_trace(go.Scatter3d(x=[-bf/2, bf/2], y=[d/2, d/2], z=[tp+2, tp+2], mode='lines', line=dict(color='#06b6d4', width=8), showlegend=False))
     fig.add_trace(go.Scatter3d(x=[tw/2, tw/2], y=[-d/2+tf, d/2-tf], z=[tp+2, tp+2], mode='lines', line=dict(color='#a855f7', width=6), name='Web Welds'))
     fig.add_trace(go.Scatter3d(x=[-tw/2, -tw/2], y=[-d/2+tf, d/2-tf], z=[tp+2, tp+2], mode='lines', line=dict(color='#a855f7', width=6), showlegend=False))
 
-    # Anchor Bolts & Tension Indicators
     for _, row in edited_df.iterrows():
         bx, by, tf_bolt, b_id = row["X (mm)"], row["Y (mm)"], row["Tension (kN)"], row["Bolt ID"]
         bolt_col = '#ef4444' if tf_bolt > 0 else '#22c55e'
@@ -394,15 +409,12 @@ with col_result:
             z_top = tp + 20 + 30 + (tf_bolt * 1.0)
             fig.add_trace(go.Scatter3d(x=[bx, bx], y=[by, by], z=[tp+20, z_top], mode='lines', line=dict(color='#b91c1c', width=8), showlegend=False))
 
-    # Pu Force Vector Arrow
     fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, 0], z=[tp+460, tp+360], mode='lines', line=dict(color='#ef4444', width=8), name='Pu Axial Force'))
     fig.add_trace(go.Cone(x=[0], y=[0], z=[tp+360], u=[0], v=[0], w=[-45], colorscale=[[0, '#ef4444'], [1, '#ef4444']], showscale=False, sizemode='absolute', sizeref=25, name='Pu Tip'))
 
-    # Vu Force Vector Arrow
     fig.add_trace(go.Scatter3d(x=[0, 0], y=[-N/2 - 70, -N/2 - 10], z=[tp+10, tp+10], mode='lines', line=dict(color='#10b981', width=8), name='Vu Shear Force'))
     fig.add_trace(go.Cone(x=[0], y=[-N/2 - 10], z=[tp+10], u=[0], v=[45], w=[0], colorscale=[[0, '#10b981'], [1, '#10b981']], showscale=False, sizemode='absolute', sizeref=25, name='Vu Tip'))
 
-    # Mu Moment Curved Rotational Vector
     arc_x, arc_y, arc_z = [], [], []
     R_mu = 65.0
     for i in range(30):
@@ -418,7 +430,7 @@ with col_result:
 
 
 # =========================================================================
-# 3. DETAILED CALCULATION TABS (ย้ายออกนอกคอลัมน์เพื่อให้แสดงผล Full-Width)
+# 3. DETAILED CALCULATION TABS 
 # =========================================================================
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.markdown("### 📝 รายการคำนวณอย่างละเอียด (Detailed Calculation Reports)")
@@ -427,7 +439,6 @@ tab_weld, tab_plate, tab_bolt = st.tabs(["🔥 1. Welds Calculation", "🔲 2. B
 
 # ---------------- TAB 1: WELD ----------------
 with tab_weld:
-    # เปลี่ยนการแสดงผลให้ล้อตามชื่อเกรดที่เลือกจริง
     st.info(f"**Analysis assumptions:** Elastic Line Method | **{selected_weld_grade}** | Actual weld size = **{weld_size_mm} mm**")
 
     with st.container(border=True):
@@ -470,14 +481,12 @@ with tab_weld:
 
 # ---------------- TAB 2: PLATE ----------------
 with tab_plate:
-    # เปลี่ยนคำอธิบายให้อัปเดตตามชื่อเกรดเหล็กแผ่นที่เลือกจริง
     st.info(f"**Analysis assumptions:** AISC Design Guide 1 | **{selected_plate_grade}**")
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 1: Check concrete bearing pressure (Bearing Pressure)")
         st.markdown(f"Load eccentricity $e = M_u/P_u = {ecc:.1f}$ mm  |  Kern $= N/6 = {e_kern:.1f}$ mm  |  Edge $= N/2 = {e_edge:.1f}$ mm")
 
-        # การประเมินสถานะแรงกด
         regime_map = {
             "no-compression": ("⚠️ No axial compression — bearing cannot form; bolts/uplift govern (#4).", "danger"),
             "full":           ("ℹ️ Full contact: trapezoidal pressure over the whole plate ($e \\le N/6$).", "info"),
@@ -573,7 +582,7 @@ with tab_bolt:
             st.markdown(f"<div class='danger-card'>⚠️ <b>Bearing-block solver:</b> {bolt_sol.get('reason','could not converge')} — bolt tensions not available; revise the connection.</div>", unsafe_allow_html=True)
 
     with st.container(border=True):
-        st.markdown("##### 📌 Step 2: Bolt capacities (Bolt Capacities)")
+        st.markdown("##### 📌 Step 2: Bolt capacities (Steel Bolt Capacities)")
 
         c1, c2 = st.columns(2)
         with c1:
@@ -592,15 +601,40 @@ with tab_bolt:
         st.markdown(f"Critical tension demand $T_{{u,max}} =$ **{max_t_actual:.2f} kN** → "
                     f"($T_{{u,max}} / \\phi R'_{{nt}} =$ **{max_t_actual/bolt_t_cap_int:.2f}**)")
 
+    # --- เช็กกำลังคอนกรีตที่เพิ่มเข้ามาใหม่ ---
+    conc_results = check_concrete_capacities(fc_mpa, h_ef, c_edge, d_b)
+    phi_N_cb = conc_results["phi_N_cb"]
+    phi_N_pn = conc_results["phi_N_pn"]
+    
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 4: Concrete Anchor Failure Modes (ACI 318)")
+        st.caption("ตรวจสอบพฤติกรรมการหลุดและรูดของฝังในคอนกรีตเพื่อความปลอดภัย")
+        
+        st.markdown(f"- **Concrete Breakout Capacity (φN_cb):** **{phi_N_cb:.2f} kN**")
+        st.markdown(f"- **Concrete Pullout Capacity (φN_pn):** **{phi_N_pn:.2f} kN**")
+        st.markdown(f"- **Steel Tension Capacity (φR'nt):** **{bolt_t_cap_int:.2f} kN**")
+        
+        capacities = {
+            "Steel Bolt Rupture (เหล็กโบลต์ขาด)": bolt_t_cap_int,
+            "Concrete Breakout (คอนกรีตแตกกระเทาะ)": phi_N_cb,
+            "Anchor Pullout (โบลต์รูดหลุด)": phi_N_pn
+        }
+        governing_mode = min(capacities, key=capacities.get)
+        min_cap = capacities[governing_mode]
+        
+        st.info(f"💡 **Governing Failure Mode:** จุดที่จะวิบัติก่อนคือ **{governing_mode}** ที่แรงดึง **{min_cap:.2f} kN**")
+
+    # ปรับปรุงเงื่อนไขการสรุปผล (Result Summary)
     t_pass = max_t_actual <= bolt_t_cap_int
+    concrete_pass = max_t_actual <= min(phi_N_cb, phi_N_pn)
     v_pass = max_v_actual <= bolt_v_cap
 
-    if t_pass and v_pass:
-        st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Bolts safely resist combined tension, shear, and their interaction per AISC J3.7</div>", unsafe_allow_html=True)
+    if t_pass and v_pass and concrete_pass:
+        st.markdown("<div class='rec-card'>✅ <b>PASS:</b> โบลต์และฐานรากคอนกรีตสามารถรับแรงดึง-แรงเฉือนได้อย่างปลอดภัย</div>", unsafe_allow_html=True)
     else:
         errors = []
-        if not t_pass: errors.append(f"Critical tension ({max_t_actual:.2f} kN) > Reduced capacity φR'nt ({bolt_t_cap_int:.2f} kN)")
-        if not v_pass: errors.append(f"Shear ({max_v_actual:.2f} kN) > Capacity φRnv ({bolt_v_cap:.2f} kN)")
+        if not t_pass: errors.append(f"แรงดึงชิ้นงาน ({max_t_actual:.2f} kN) > กำลังเหล็กโบลต์ φR'nt ({bolt_t_cap_int:.2f} kN)")
+        if not concrete_pass: errors.append(f"แรงดึงชิ้นงาน ({max_t_actual:.2f} kN) > กำลังของคอนกรีต ({min(phi_N_cb, phi_N_pn):.2f} kN) — เสี่ยงเกิด Concrete Breakout/Pullout")
+        if not v_pass: errors.append(f"แรงเฉือนชิ้นงาน ({max_v_actual:.2f} kN) > กำลังรับแรงเฉือนเหล็ก φRnv ({bolt_v_cap:.2f} kN)")
         error_text = "<br>".join([f"- {e}" for e in errors])
-
-        st.markdown(f"<div class='danger-card'>❌ <b>FAIL: Bolts cannot resist the loads</b><br>{error_text}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='danger-card'>❌ <b>FAIL: จุดเชื่อมต่อไม่ปลอดภัย</b><br>{error_text}</div>", unsafe_allow_html=True)
