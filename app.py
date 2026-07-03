@@ -365,7 +365,34 @@ with col_result:
     n_arm = (B - 0.80 * bf) / 2.0
     # Assuming Fy of plate = 245 MPa
     Fy_plate = 245.0
-    t_req = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
+    
+    # 1. ความหนาที่ต้องการสำหรับฝั่งรับแรงกด (Compression Side)
+    t_req_compression = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
+
+    # 2. ความหนาที่ต้องการสำหรับฝั่งรับแรงดึง (Tension Side - AISC Design Guide 1)
+    t_req_tension = 0.0
+    f_arm = 0.0
+    b_eff = 1.0
+    M_u_tension = 0.0
+
+    if max_t_actual > 0:
+        # ค้นหาระยะยื่น f_arm จากสลักเกลียวตัวที่รับแรงดึงสูงสุดถึงผิวปีกเสา
+        max_f_arm = 0.0
+        for _, row in edited_df.iterrows():
+            if row["Tension (kN)"] > 0:
+                arm = max(0.0, abs(row["Y (mm)"]) - (d / 2.0))
+                if arm > max_f_arm:
+                    max_f_arm = arm
+        
+        f_arm = max_f_arm
+        if f_arm > 0:
+            # AISC DG1: ความกว้างประสิทธิผลกระจายแรงดัด (b_eff) รอบโบลต์ฝั่งแรงดึง
+            b_eff = min(float(B), 3.5 * f_arm)
+            M_u_tension = max_t_actual * 1000.0 * f_arm  # N-mm (คิดต่อตัวที่วิกฤตที่สุด)
+            t_req_tension = math.sqrt((4.0 * M_u_tension) / (0.90 * Fy_plate * b_eff))
+
+    # ความหนาที่ควบคุมการออกแบบ (Governing Thickness)
+    t_req = max(t_req_compression, t_req_tension)
 
     # --- Anchor-bolt tensions via bearing-block equilibrium (#4) ---
     bolt_coords = list(zip(edited_df["X (mm)"].astype(float), edited_df["Y (mm)"].astype(float)))
