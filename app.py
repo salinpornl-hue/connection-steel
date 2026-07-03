@@ -29,21 +29,6 @@ THAI_PLATE_THICKNESSES = [12, 16, 19, 22, 25, 28, 32, 38, 50]
 def solve_bearing_block_bolts(P_u, M_u, B, N, bolt_coords, q_max):
     """Solve the coupled bearing-block + anchor-bolt equilibrium for a moment
     base plate in the uplift regime (AISC Design Guide 1, simplified method).
-
-    Assumes a uniform (rectangular) bearing stress q_max acting over a length Y
-    measured from the compression edge (-N/2). Bolts above the resulting neutral
-    axis (y_NA = -N/2 + Y) take elastic tension proportional to their distance
-    above y_NA. Solves for Y so that BOTH SigmaF=0 and SigmaM=0 about the plate
-    centroid are satisfied.
-
-    Args:
-        P_u, M_u : factored axial (N) and moment (N-mm), +M puts the tension side at +y.
-        B, N     : plate width and length (mm).
-        bolt_coords: list of (x, y) bolt coordinates (mm).
-        q_max    : design bearing stress phi_c*0.85*f'c (MPa).
-
-    Returns dict with: ok, case, Y, C, total_T, tensions (per bolt, aligned to
-        bolt_coords, kN), y_NA, and equilibrium residuals.
     """
     bolts = [(x, y) for (x, y) in bolt_coords]
     n = len(bolts)
@@ -179,12 +164,10 @@ with col_input:
         rec_B = math.ceil((bf + 150) / 10) * 10
         rec_N = math.ceil((d + 160) / 10) * 10
 
-        # --- [FIX] Version-management system for the input fields ---
         if "plate_version" not in st.session_state: st.session_state["plate_version"] = 0
         if "plate_B" not in st.session_state: st.session_state["plate_B"] = float(rec_B)
         if "plate_N" not in st.session_state: st.session_state["plate_N"] = float(rec_N)
 
-        # Append the version to the key so the value can be refreshed freely
         B = st.number_input("Plate width B (mm)", value=st.session_state["plate_B"], key=f"B_{st.session_state['plate_version']}")
         N = st.number_input("Plate length N (mm)", value=st.session_state["plate_N"], key=f"N_{st.session_state['plate_version']}")
 
@@ -214,13 +197,11 @@ with col_matrix:
             "Y (mm)": [init_y, init_y, 0.0, 0.0, -init_y, -init_y]
         })
 
-    # [NEW] Auto-Resize Engine Button
     if st.button("🤖 Auto-Resize (fix bolt coords + auto-enlarge plate)", use_container_width=True):
         fixed_matrix = st.session_state["grid_data"].copy()
         max_abs_x = 0.0
         max_abs_y = 0.0
 
-        # Step 1: Move bolts clear of the column
         for idx, row in fixed_matrix.iterrows():
             curr_x, curr_y = row["X (mm)"], row["Y (mm)"]
             sign_x = 1.0 if curr_x >= 0 else -1.0
@@ -232,17 +213,14 @@ with col_matrix:
             fixed_matrix.at[idx, "X (mm)"] = curr_x
             fixed_matrix.at[idx, "Y (mm)"] = curr_y
 
-            # Track the widest bolt reach to size the plate
             max_abs_x = max(max_abs_x, abs(curr_x))
             max_abs_y = max(max_abs_y, abs(curr_y))
 
         st.session_state["grid_data"] = fixed_matrix
 
-        # Step 2: Enlarge the plate to satisfy edge distance
         req_B = (max_abs_x + bolt_profile["min_edge"]) * 2.0
         req_N = (max_abs_y + bolt_profile["min_edge"]) * 2.0
 
-        # --- [FIX] Update values and bump the version to dodge the key-collision error ---
         st.session_state["plate_B"] = float(math.ceil(req_B / 10.0) * 10.0)
         st.session_state["plate_N"] = float(math.ceil(req_N / 10.0) * 10.0)
         st.session_state["plate_version"] += 1
@@ -253,7 +231,6 @@ with col_matrix:
     st.session_state["grid_data"] = edited_df
     num_bolts = len(edited_df)
 
-    # --- COMPUTATIONAL GEOMETRY ENGINE ---
     geometric_errors = []
     min_s_req = 2.67 * d_b
     min_edge_req = bolt_profile["min_edge"]
@@ -289,11 +266,7 @@ with col_result:
     # --- ENGINEERING MECHANICS CALCULATION ---
     P_u_n, V_u_n, M_u_nmm = p_u_kn * 1000.0, v_u_kn * 1000.0, m_u_knm * 1000000.0
 
-    # Bolt tensions are solved AFTER the bearing block (#3 + #4 coupling):
-    # see solve_bearing_block_bolts() above. Full/partial bearing -> zero bolt
-    # tension; uplift/no-compression -> elastic tensions over a uniform q_max
-    # bearing block at the compression edge.
-    I_y_group = sum(edited_df["Y (mm)"]**2) if num_bolts > 0 else 1.0   # kept for the bolt-tab info line
+    I_y_group = sum(edited_df["Y (mm)"]**2) if num_bolts > 0 else 1.0
 
     l_flange = 4.0 * bf
     l_web = 2.0 * (d - (2.0 * tf)) if (d - (2.0 * tf)) > 0 else 1.0
@@ -307,7 +280,6 @@ with col_result:
     total_demand_web = math.sqrt(weld_stress_axial**2 + weld_stress_shear**2)
     max_weld_demand = max(total_demand_flange, total_demand_web)
 
-    # Weld capacity assuming E70XX electrodes
     F_exx = 490.0 # MPa
     weld_cap_per_mm = 0.75 * 0.60 * F_exx * 0.707 * weld_size_mm / 1000.0
 
@@ -319,82 +291,39 @@ with col_result:
     f_p_max = phi_c * 0.85 * fc_mpa
     ecc = M_u_nmm / P_u_n if P_u_n > 0 else 0.0
 
-    # --- Concrete bearing pressure (AISC Design Guide 1) ---
-    # The bearing resultant equals P_u and acts at eccentricity e = M_u/P_u from
-    # the plate centroid. Three regimes depending on e vs. the plate kern (N/6)
-    # and edge (N/2). Pressure builds on the compression edge; the far edge may
-    # go into uplift (carried by anchor bolts).
     e_kern = N / 6.0
     e_edge = N / 2.0
     if P_u_n <= 0:
-        # No axial compression: bearing cannot form; uplift/bolts govern (#4).
         bearing_case = "no-compression"
         f_p_min = f_p_max_edge = f_p_peak = 0.0
         Y_bearing = 0.0
         bearing_ok = False
     elif ecc <= e_kern:
-        # Full contact, trapezoidal distribution over the whole plate.
         bearing_case = "full"
-        q_mean = P_u_n / (B * N)                        # mean pressure (MPa)
-        f_p_min = q_mean * (1.0 - 6.0 * ecc / N)        # tension-side edge
-        f_p_max_edge = q_mean * (1.0 + 6.0 * ecc / N)   # compression-side edge (peak)
+        q_mean = P_u_n / (B * N)
+        f_p_min = q_mean * (1.0 - 6.0 * ecc / N)
+        f_p_max_edge = q_mean * (1.0 + 6.0 * ecc / N)
         f_p_peak = f_p_max_edge
-        Y_bearing = float(N)                            # whole plate bears
+        Y_bearing = float(N)
         bearing_ok = f_p_peak <= f_p_max
     elif ecc < e_edge:
-        # Partial contact, triangular distribution over length Y (from comp. edge).
         bearing_case = "partial"
-        Y_bearing = 1.5 * N - 3.0 * ecc                 # bearing length
+        Y_bearing = 1.5 * N - 3.0 * ecc
         f_p_peak = (2.0 * P_u_n) / (B * Y_bearing) if Y_bearing > 0 else f_p_max
         f_p_max_edge = f_p_peak
         f_p_min = 0.0
         bearing_ok = f_p_peak <= f_p_max
     else:
-        # Resultant falls outside the plate: bearing alone cannot equilibrate.
         bearing_case = "uplift"
         Y_bearing = 0.0
-        f_p_peak = f_p_max                              # use capacity as governing pressure
+        f_p_peak = f_p_max
         f_p_max_edge = f_p_peak
         f_p_min = 0.0
         bearing_ok = False
 
-    # Governing (peak) bearing pressure drives the plate-thickness check.
     bearing_actual = f_p_peak
 
-    m_arm = (N - 0.95 * d) / 2.0
-    n_arm = (B - 0.80 * bf) / 2.0
-    # Assuming Fy of plate = 245 MPa
-    Fy_plate = 245.0
-    
-    # 1. ความหนาที่ต้องการสำหรับฝั่งรับแรงกด (Compression Side)
-    t_req_compression = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
-
-    # 2. ความหนาที่ต้องการสำหรับฝั่งรับแรงดึง (Tension Side - AISC Design Guide 1)
-    t_req_tension = 0.0
-    f_arm = 0.0
-    b_eff = 1.0
-    M_u_tension = 0.0
-
-    if max_t_actual > 0:
-        # ค้นหาระยะยื่น f_arm จากสลักเกลียวตัวที่รับแรงดึงสูงสุดถึงผิวปีกเสา
-        max_f_arm = 0.0
-        for _, row in edited_df.iterrows():
-            if row["Tension (kN)"] > 0:
-                arm = max(0.0, abs(row["Y (mm)"]) - (d / 2.0))
-                if arm > max_f_arm:
-                    max_f_arm = arm
-        
-        f_arm = max_f_arm
-        if f_arm > 0:
-            # AISC DG1: ความกว้างประสิทธิผลกระจายแรงดัด (b_eff) รอบโบลต์ฝั่งแรงดึง
-            b_eff = min(float(B), 3.5 * f_arm)
-            M_u_tension = max_t_actual * 1000.0 * f_arm  # N-mm (คิดต่อตัวที่วิกฤตที่สุด)
-            t_req_tension = math.sqrt((4.0 * M_u_tension) / (0.90 * Fy_plate * b_eff))
-
-    # ความหนาที่ควบคุมการออกแบบ (Governing Thickness)
-    t_req = max(t_req_compression, t_req_tension)
-
-    # --- Anchor-bolt tensions via bearing-block equilibrium (#4) ---
+    # 🔹 [CRITICAL FIX] ย้ายตัวคำนวณสลักเกลียวขึ้นมาทำก่อน เพื่อป้องกัน NameError ของตัวแปร max_t_actual
     bolt_coords = list(zip(edited_df["X (mm)"].astype(float), edited_df["Y (mm)"].astype(float)))
     bolt_sol = solve_bearing_block_bolts(P_u_n, M_u_nmm, B, N, bolt_coords, f_p_max)
     if bolt_sol["ok"]:
@@ -403,28 +332,51 @@ with col_result:
         edited_df["Tension (kN)"] = [0.0] * num_bolts
     tensions = list(edited_df["Tension (kN)"])
     bolt_case = bolt_sol.get("case", "unknown")
-
     max_t_actual = max(tensions) if tensions else 0
+
+    # 🔹 [CRITICAL FIX] ย้ายตัวคำนวณตรวจสอบความหนาทั้งฝั่งแรงกดและแรงดึงมาสรุปรวมกันตรงนี้
+    m_arm = (N - 0.95 * d) / 2.0
+    n_arm = (B - 0.80 * bf) / 2.0
+    Fy_plate = 245.0
+    
+    # 1. ความหนาที่ต้องการฝั่งแรงกด (Compression Side)
+    t_req_compression = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
+    
+    # 2. ความหนาที่ต้องการฝั่งแรงดึง (Tension Side)
+    t_req_tension = 0.0
+    f_arm = 0.0
+    b_eff = 1.0
+    if max_t_actual > 0:
+        max_f_arm = 0.0
+        for _, row in edited_df.iterrows():
+            if row["Tension (kN)"] > 0:
+                arm = max(0.0, abs(row["Y (mm)"]) - (d / 2.0))
+                if arm > max_f_arm:
+                    max_f_arm = arm
+        f_arm = max_f_arm
+        if f_arm > 0:
+            b_eff = min(float(B), 3.5 * f_arm)
+            M_u_tension = max_t_actual * 1000.0 * f_arm
+            t_req_tension = math.sqrt((4.0 * M_u_tension) / (0.90 * Fy_plate * b_eff))
+
+    # ความหนาที่ใช้ควบคุมการออกแบบ (Governing thickness)
+    t_req = max(t_req_compression, t_req_tension)
+
+    # คำนวณขีดความสามารถของโบลต์ตัวอื่น ๆ ถัดไป
     bolt_t_cap = (0.75 * bolt_profile["F_nt"] * bolt_profile["area"]) / 1000.0
     bolt_v_cap = (0.75 * bolt_profile["F_nv"] * bolt_profile["area"]) / 1000.0
     max_v_actual = v_u_kn / num_bolts if num_bolts > 0 else 0.0
 
-    # --- Combined tension + shear interaction (AISC 360-16, Section J3.7) ---
-    # When a bolt resists both tension and shear at the same time, its tensile
-    # capacity must be reduced. The reduced nominal tensile stress is:
-    #   F'nt = 1.3*Fnt - (Fnt / (phi*Fnv)) * frv , capped to [0, Fnt]
-    # and the governing tension check becomes  Tu <= phi * F'nt * Ab.
     F_nt_b = bolt_profile["F_nt"]
     F_nv_b = bolt_profile["F_nv"]
     A_b = bolt_profile["area"]
     phi_b = 0.75
-    f_rv = (max_v_actual * 1000.0) / A_b if A_b > 0 else 0.0   # required shear stress (MPa)
+    f_rv = (max_v_actual * 1000.0) / A_b if A_b > 0 else 0.0
     F_nt_prime = 1.3 * F_nt_b - (F_nt_b / (phi_b * F_nv_b)) * f_rv
-    F_nt_prime = min(F_nt_b, max(0.0, F_nt_prime))            # clamp to [0, Fnt]
-    bolt_t_cap_int = (phi_b * F_nt_prime * A_b) / 1000.0       # reduced tension capacity (kN)
+    F_nt_prime = min(F_nt_b, max(0.0, F_nt_prime))
+    bolt_t_cap_int = (phi_b * F_nt_prime * A_b) / 1000.0
 
     # --- 3D INTERACTIVE GRAPHICS ENGINE ---
-    # Show the 3D model first to give an overall picture
     fig = go.Figure()
     fig.add_trace(go.Mesh3d(x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2], y=[-N/2, -N/2, N/2, N/2, -N/2, -N/2, N/2, N/2], z=[0, 0, 0, 0, tp, tp, tp, tp], color='#475569', opacity=0.85, name='Plate'))
     fig.add_trace(go.Mesh3d(x=[-bf/2, bf/2, bf/2, -bf/2, -bf/2, bf/2, bf/2, -bf/2], y=[-d/2, -d/2, -d/2+tf, -d/2+tf, -d/2, -d/2, -d/2+tf, -d/2+tf], z=[tp, tp, tp, tp, tp+350, tp+350, tp+350, tp+350], color='#1e293b', name='Column'))
@@ -449,7 +401,6 @@ with col_result:
     st.plotly_chart(fig, use_container_width=True)
 
     # --- DETAILED CALCULATION TABS ---
-    # --- DETAILED CALCULATION TABS (PREMIUM UI) ---
     tab_weld, tab_plate, tab_bolt = st.tabs(["🔥 1. Welds", "🔲 2. Base Plate", "🔩 3. Anchor Bolts"])
 
     # ---------------- TAB 1: WELD ----------------
@@ -502,7 +453,6 @@ with col_result:
             st.markdown("##### 📌 Step 1: Check concrete bearing pressure (Bearing Pressure)")
             st.markdown(f"Load eccentricity $e = M_u/P_u = {ecc:.1f}$ mm  |  Kern $= N/6 = {e_kern:.1f}$ mm  |  Edge $= N/2 = {e_edge:.1f}$ mm")
 
-            # --- Regime banner ---
             regime_map = {
                 "no-compression": ("⚠️ No axial compression — bearing cannot form; bolts/uplift govern (#4).", "danger"),
                 "full":           ("ℹ️ Full contact: trapezoidal pressure over the whole plate ($e \\le N/6$).", "info"),
@@ -536,29 +486,6 @@ with col_result:
         with st.container(border=True):
             st.markdown("##### 📌 Step 2: Calculate required plate thickness (Required Thickness)")
             
-            # 1. คำนวณความหนาฝั่งรับแรงกด (Compression Side)
-            t_req_compression = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
-            
-            # 2. คำนวณความหนาฝั่งรับแรงดึง (Tension Side)
-            t_req_tension = 0.0
-            f_arm = 0.0
-            b_eff = 1.0
-            
-            if max_t_actual > 0:
-                max_f_arm = 0.0
-                for _, row in edited_df.iterrows():
-                    if row["Tension (kN)"] > 0:
-                        arm = max(0.0, abs(row["Y (mm)"]) - (d / 2.0))
-                        if arm > max_f_arm:
-                            max_f_arm = arm
-                f_arm = max_f_arm
-                if f_arm > 0:
-                    b_eff = min(float(B), 3.5 * f_arm)
-                    M_u_tension = max_t_actual * 1000.0 * f_arm
-                    t_req_tension = math.sqrt((4.0 * M_u_tension) / (0.90 * Fy_plate * b_eff))
-            
-            t_req = max(t_req_compression, t_req_tension)
-
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**🔹 ฝั่งรับแรงกด (Compression Side Check):**")
@@ -577,13 +504,13 @@ with col_result:
                     st.markdown("<div style='color: gray; padding-top: 10px;'>ไม่มีแรงดึงเกิดขึ้นในสลักเกลียว หรือไม่มีโบลต์อยู่นอกแนวปีกเสา (ไม่ต้องคำนวณหนาฝั่งดึง)</div>", unsafe_allow_html=True)
             
             st.divider()
-            st.markdown(f"**สรุปความหนาที่ควบคุมการออกแบบ:** $t_{{req}} = \\max({t_req_compression:.2f}, {t_req_tension:.2f}) = \\textbf{{{t_req:.2f}}} \\text{{ mm}}$")
+            st.markdown(f"**สรุปความหนาที่ควบคุมการออกแบบ:** $t_{{req}} = \\max({t_req_compression:.2f}, {t_req_tension:.2f}) = \\textbf{{{t_req:.2f}}}$ mm")
 
         if t_req <= tp:
             st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Required thickness <b>{t_req:.2f} mm</b> $\\le$ Actual thickness <b>{tp} mm</b></div>", unsafe_allow_html=True)
         else:
             st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Required thickness <b>{t_req:.2f} mm</b> > Actual thickness <b>{tp} mm</b> (please increase the plate thickness)</div>", unsafe_allow_html=True)
-        
+
     # ---------------- TAB 3: BOLT ----------------
     with tab_bolt:
         st.info(f"**Analysis method:** Bearing-block equilibrium (AISC Design Guide 1) | Bolts **{bolt_name}** | Number of bolts = **{num_bolts}**")
@@ -593,7 +520,6 @@ with col_result:
             bolt_group_I_label = f"Bolt-group moment of inertia about the X-axis ($I_y$) = **{I_y_group:,.0f} mm²** (reference only)"
 
             if bolt_case == "bearing-only":
-                # Full / partial bearing: bolts take zero tension.
                 st.markdown(bolt_group_I_label)
                 st.markdown(
                     "Bearing alone equilibrates both $P_u$ and $M_u$ "
@@ -620,7 +546,6 @@ with col_result:
                     st.markdown(f"$T_i = k(y_i - y_{{NA}})$, &nbsp; $k = $ **{k_b:.1f} N/mm**")
                     st.markdown(f"$\\Sigma T = $ **{T_tot:.1f} kN** &nbsp;←&nbsp; checks $C - P_u = {(C_b-P_u_n)/1000.0:.1f}$ kN")
 
-                # Per-bolt tension table
                 tbl = edited_df[["Bolt ID", "Y (mm)", "Tension (kN)"]].copy()
                 tbl["Y (mm)"] = tbl["Y (mm)"].map("{:.0f}".format)
                 tbl["Tension (kN)"] = tbl["Tension (kN)"].map("{:.2f}".format)
@@ -633,7 +558,6 @@ with col_result:
                 st.caption(f"Equilibrium check: ΣF residual = {bolt_sol['resid_F']:.2e} N, ΣM residual = {bolt_sol['resid_M']:.2e} N·mm (≈0 confirms consistency)")
 
             else:
-                # Solver failed (pu-too-large or insufficient-capacity).
                 st.markdown(bolt_group_I_label)
                 st.markdown(f"<div class='danger-card'>⚠️ <b>Bearing-block solver:</b> {bolt_sol.get('reason','could not converge')} — bolt tensions not available; revise the connection.</div>", unsafe_allow_html=True)
 
@@ -657,8 +581,7 @@ with col_result:
             st.markdown(f"Critical tension demand $T_{{u,max}} =$ **{max_t_actual:.2f} kN** → "
                         f"($T_{{u,max}} / \\phi R'_{{nt}} =$ **{max_t_actual/bolt_t_cap_int:.2f}**)")
 
-        # Result Summary
-        t_pass = max_t_actual <= bolt_t_cap_int   # governed by reduced (interaction) tension capacity
+        t_pass = max_t_actual <= bolt_t_cap_int
         v_pass = max_v_actual <= bolt_v_cap
 
         if t_pass and v_pass:
