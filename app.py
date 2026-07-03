@@ -25,6 +25,19 @@ THAI_ANCHOR_BOLTS = {
 
 THAI_PLATE_THICKNESSES = [12, 16, 19, 22, 25, 28, 32, 38, 50]
 
+# --- เพิ่มฐานข้อมูลเกรดวัสดุสำหรับเหล็กแผ่นและลวดเชื่อม ---
+STEEL_PLATE_GRADES = {
+    "SS400 (Fy = 245 MPa)": {"Fy": 245.0, "Fu": 400.0},
+    "SM490 (Fy = 325 MPa)": {"Fy": 325.0, "Fu": 490.0},
+    "SM520 (Fy = 365 MPa)": {"Fy": 365.0, "Fu": 520.0}
+}
+
+WELD_ELECTRODE_GRADES = {
+    "E70XX (F_exx = 490 MPa)": {"F_exx": 490.0},
+    "E60XX (F_exx = 415 MPa)": {"F_exx": 415.0},
+    "E80XX (F_exx = 550 MPa)": {"F_exx": 550.0}
+}
+
 
 def solve_bearing_block_bolts(P_u, M_u, B, N, bolt_coords, q_max):
     """Solve the coupled bearing-block + anchor-bolt equilibrium for a moment
@@ -144,6 +157,17 @@ with col_input:
         bf = c2.number_input("Flange width bf", value=prof["bf"])
         tw = c1.number_input("Web thickness tw", value=prof["tw"])
         tf = c2.number_input("Flange thickness tf", value=prof["tf"])
+
+    # --- เพิ่ม Section เลือกเกรดของวัสดุใน UI ---
+    with st.container(border=True):
+        st.caption("🏗️ Material Properties (เกรดวัสดุ)")
+        cx_m1, cx_m2 = st.columns(2)
+        
+        selected_plate_grade = cx_m1.selectbox("Base Plate Grade (เกรดเหล็ก):", list(STEEL_PLATE_GRADES.keys()), index=0)
+        Fy_plate = STEEL_PLATE_GRADES[selected_plate_grade]["Fy"]
+        
+        selected_weld_grade = cx_m2.selectbox("Weld Electrode (เกรดลวดเชื่อม):", list(WELD_ELECTRODE_GRADES.keys()), index=0)
+        F_exx = WELD_ELECTRODE_GRADES[selected_weld_grade]["F_exx"]
 
     with st.container(border=True):
         st.caption("⚡ Factored loads acting on the joint (LRFD Load)")
@@ -275,7 +299,7 @@ with col_result:
     total_demand_web = math.sqrt(weld_stress_axial**2 + weld_stress_shear**2)
     max_weld_demand = max(total_demand_flange, total_demand_web)
 
-    F_exx = 490.0
+    # นำ F_exx ที่ดึงมาจากเกรดที่เลือกในฐานข้อมูลมาใช้งานคำนวณตรงนี้แทนค่าเดิมที่เป็นค่าคงที่
     weld_cap_per_mm = 0.75 * 0.60 * F_exx * 0.707 * weld_size_mm / 1000.0
 
     min_weld_req = 5 if tp <= 13 else (6 if tp <= 19 else 8)
@@ -320,7 +344,8 @@ with col_result:
 
     m_arm = (N - 0.95 * d) / 2.0
     n_arm = (B - 0.80 * bf) / 2.0
-    Fy_plate = 245.0
+    
+    # นำ Fy_plate ที่มาจากฐานข้อมูลเกรดที่ผู้ใช้เลือกในสเต็ปแรกมาใช้งานจริง
     t_req = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
 
     bolt_coords = list(zip(edited_df["X (mm)"].astype(float), edited_df["Y (mm)"].astype(float)))
@@ -369,15 +394,15 @@ with col_result:
             z_top = tp + 20 + 30 + (tf_bolt * 1.0)
             fig.add_trace(go.Scatter3d(x=[bx, bx], y=[by, by], z=[tp+20, z_top], mode='lines', line=dict(color='#b91c1c', width=8), showlegend=False))
 
-    # [NEW 3D ENGINE] 1. Pu Force Vector Arrow (Axial Compression)
+    # Pu Force Vector Arrow
     fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, 0], z=[tp+460, tp+360], mode='lines', line=dict(color='#ef4444', width=8), name='Pu Axial Force'))
     fig.add_trace(go.Cone(x=[0], y=[0], z=[tp+360], u=[0], v=[0], w=[-45], colorscale=[[0, '#ef4444'], [1, '#ef4444']], showscale=False, sizemode='absolute', sizeref=25, name='Pu Tip'))
 
-    # [NEW 3D ENGINE] 2. Vu Force Vector Arrow (Horizontal Shear)
+    # Vu Force Vector Arrow
     fig.add_trace(go.Scatter3d(x=[0, 0], y=[-N/2 - 70, -N/2 - 10], z=[tp+10, tp+10], mode='lines', line=dict(color='#10b981', width=8), name='Vu Shear Force'))
     fig.add_trace(go.Cone(x=[0], y=[-N/2 - 10], z=[tp+10], u=[0], v=[45], w=[0], colorscale=[[0, '#10b981'], [1, '#10b981']], showscale=False, sizemode='absolute', sizeref=25, name='Vu Tip'))
 
-    # [NEW 3D ENGINE] 3. Mu Moment Curved Rotational Vector (Bending Arc)
+    # Mu Moment Curved Rotational Vector
     arc_x, arc_y, arc_z = [], [], []
     R_mu = 65.0
     for i in range(30):
@@ -402,7 +427,8 @@ tab_weld, tab_plate, tab_bolt = st.tabs(["🔥 1. Welds Calculation", "🔲 2. B
 
 # ---------------- TAB 1: WELD ----------------
 with tab_weld:
-    st.info(f"**Analysis assumptions:** Elastic Line Method | E70XX electrodes | Actual weld size = **{weld_size_mm} mm**")
+    # เปลี่ยนการแสดงผลให้ล้อตามชื่อเกรดที่เลือกจริง
+    st.info(f"**Analysis assumptions:** Elastic Line Method | **{selected_weld_grade}** | Actual weld size = **{weld_size_mm} mm**")
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 1: Analyze force demand on the weld (Demand)")
@@ -425,7 +451,7 @@ with tab_weld:
     with st.container(border=True):
         st.markdown("##### 📌 Step 2: Weld capacity (Capacity)")
         st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times F_{{EXX}} \\times 0.707 \\times a $$")
-        st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times 490 \\times 0.707 \\times ({weld_size_mm} / 1000) = {weld_cap_per_mm:.2f} \\text{{ kN/mm}} $$")
+        st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times {F_exx:.0f} \\times 0.707 \\times ({weld_size_mm} / 1000) = {weld_cap_per_mm:.2f} \\text{{ kN/mm}} $$")
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 3: Recommended weld size (Sizing)")
@@ -444,12 +470,14 @@ with tab_weld:
 
 # ---------------- TAB 2: PLATE ----------------
 with tab_plate:
-    st.info(f"**Analysis assumptions:** AISC Design Guide 1 | SS400 plate steel (Yield Strength = **{Fy_plate:.0f} MPa**)")
+    # เปลี่ยนคำอธิบายให้อัปเดตตามชื่อเกรดเหล็กแผ่นที่เลือกจริง
+    st.info(f"**Analysis assumptions:** AISC Design Guide 1 | **{selected_plate_grade}**")
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 1: Check concrete bearing pressure (Bearing Pressure)")
         st.markdown(f"Load eccentricity $e = M_u/P_u = {ecc:.1f}$ mm  |  Kern $= N/6 = {e_kern:.1f}$ mm  |  Edge $= N/2 = {e_edge:.1f}$ mm")
 
+        # การประเมินสถานะแรงกด
         regime_map = {
             "no-compression": ("⚠️ No axial compression — bearing cannot form; bolts/uplift govern (#4).", "danger"),
             "full":           ("ℹ️ Full contact: trapezoidal pressure over the whole plate ($e \\le N/6$).", "info"),
