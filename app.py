@@ -496,57 +496,99 @@ with col_result:
 
     # ---------------- TAB 2: PLATE ----------------
     with tab_plate:
-        st.info(f"**Analysis assumptions:** AISC Design Guide 1 | SS400 plate steel (Yield Strength = **{Fy_plate:.0f} MPa**)")
+    st.info(f"**Analysis assumptions:** AISC Design Guide 1 | SS400 plate steel (Yield Strength = **{Fy_plate:.0f} MPa**)")
 
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 1: Check concrete bearing pressure (Bearing Pressure)")
-            st.markdown(f"Load eccentricity $e = M_u/P_u = {ecc:.1f}$ mm  |  Kern $= N/6 = {e_kern:.1f}$ mm  |  Edge $= N/2 = {e_edge:.1f}$ mm")
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 1: Check concrete bearing pressure (Bearing Pressure)")
+        st.markdown(f"Load eccentricity $e = M_u/P_u = {ecc:.1f}$ mm  |  Kern $= N/6 = {e_kern:.1f}$ mm  |  Edge $= N/2 = {e_edge:.1f}$ mm")
 
-            # --- Regime banner ---
-            regime_map = {
-                "no-compression": ("⚠️ No axial compression — bearing cannot form; bolts/uplift govern (#4).", "danger"),
-                "full":           ("ℹ️ Full contact: trapezoidal pressure over the whole plate ($e \\le N/6$).", "info"),
-                "partial":        ("ℹ️ Partial contact: triangular pressure over length $Y$ from the compression edge ($N/6 < e < N/2$).", "info"),
-                "uplift":         ("⚠️ Resultant outside the plate ($e \\ge N/2$): bearing alone cannot equilibrate — bolts must anchor the uplift.", "danger"),
-            }
-            banner_text, banner_kind = regime_map.get(bearing_case, ("Unknown bearing case.", "danger"))
-            banner_cls = "rec-card" if banner_kind == "info" else "danger-card"
-            st.markdown(f"<div class='{banner_cls}'>{banner_text}</div>", unsafe_allow_html=True)
+        # --- Regime banner ---
+        regime_map = {
+            "no-compression": ("⚠️ No axial compression — bearing cannot form; bolts/uplift govern (#4).", "danger"),
+            "full":           ("ℹ️ Full contact: trapezoidal pressure over the whole plate ($e \\le N/6$).", "info"),
+            "partial":        ("ℹ️ Partial contact: triangular pressure over length $Y$ from the compression edge ($N/6 < e < N/2$).", "info"),
+            "uplift":         ("⚠️ Resultant outside the plate ($e \\ge N/2$): bearing alone cannot equilibrate — bolts must anchor the uplift.", "danger"),
+        }
+        banner_text, banner_kind = regime_map.get(bearing_case, ("Unknown bearing case.", "danger"))
+        banner_cls = "rec-card" if banner_kind == "info" else "danger-card"
+        st.markdown(f"<div class='{banner_cls}'>{banner_text}</div>", unsafe_allow_html=True)
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Peak bearing pressure (Actual):**")
-                if bearing_case == "full":
-                    st.markdown(f"$$ f_{{p,max}} = \\frac{{P_u}}{{BN}}\\left(1 + \\frac{{6e}}{{N}}\\right) = {f_p_peak:.2f} \\text{{ MPa}} $$")
-                    st.caption(f"Tension-side edge: $f_{{p,min}} = {f_p_min:.2f}$ MPa")
-                elif bearing_case == "partial":
-                    st.markdown(f"$Y = 1.5N - 3e = 1.5({N:.0f}) - 3({ecc:.0f}) = $ **{Y_bearing:.1f} mm** (bearing length)")
-                    st.markdown(f"$$ f_{{p,peak}} = \\frac{{2P_u}}{{B \\cdot Y}} = {f_p_peak:.2f} \\text{{ MPa}} $$")
-                else:
-                    st.markdown(f"$$ f_{{p,peak}} = {f_p_peak:.2f} \\text{{ MPa}} \\; (\\text{{capacity used as governing value}}) $$")
-            with c2:
-                st.markdown("**Max bearing capacity (Capacity):**")
-                st.markdown(f"$$ \\phi_c f_{{p,max}} = 0.65 (0.85 f_c') = {f_p_max:.2f} \\text{{ MPa}} $$")
-
-            if bearing_ok:
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Status:** Concrete bearing is adequate ($f_{{p,peak}} = {f_p_peak:.2f} \\le \\phi_c f_{{p,max}} = {f_p_max:.2f}$)")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Peak bearing pressure (Actual):**")
+            if bearing_case == "full":
+                st.markdown(f"$$ f_{{p,max}} = \\frac{{P_u}}{{BN}}\\left(1 + \\frac{{6e}}{{N}}\\right) = {f_p_peak:.2f} \\text{{ MPa}} $$")
+                st.caption(f"Tension-side edge: $f_{{p,min}} = {f_p_min:.2f}$ MPa")
+            elif bearing_case == "partial":
+                st.markdown(f"$Y = 1.5N - 3e = 1.5({N:.0f}) - 3({ecc:.0f}) = $ **{Y_bearing:.1f} mm** (bearing length)")
+                st.markdown(f"$$ f_{{p,peak}} = \\frac{{2P_u}}{{B \\cdot Y}} = {f_p_peak:.2f} \\text{{ MPa}} $$")
             else:
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;❌ **Status:** Concrete bearing exceeded — enlarge the plate (B, N) or increase $f'_c$")
+                st.markdown(f"$$ f_{{p,peak}} = {f_p_peak:.2f} \\text{{ MPa}} \\; (\\text{{capacity used as governing value}}) $$")
+        with c2:
+            st.markdown("**Max bearing capacity (Capacity):**")
+            st.markdown(f"$$ \\phi_c f_{{p,max}} = 0.65 (0.85 f_c') = {f_p_max:.2f} \\text{{ MPa}} $$")
 
-        with st.container(border=True):
-            st.markdown("##### 📌 Step 2: Calculate required plate thickness (Required Thickness)")
-            st.markdown(f"- Y-direction cantilever ($m$) = $({N} - 0.95({d})) / 2 = {m_arm:.1f}$ mm")
-            st.markdown(f"- X-direction cantilever ($n$) = $({B} - 0.80({bf})) / 2 = {n_arm:.1f}$ mm")
-
-            l_crit = max(m_arm, n_arm)
-            st.markdown(f"**Critical distance ($l$) = $\\max(m, n) = {l_crit:.1f}$ mm**")
-            st.markdown(f"$$ t_{{req}} = l \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {l_crit:.1f} \\sqrt{{\\frac{{2({bearing_actual:.2f})}}{{0.90({Fy_plate})}}}} = {t_req:.2f} \\text{{ mm}} $$")
-
-        if t_req <= tp:
-            st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Required thickness <b>{t_req:.2f} mm</b> $\\le$ Actual thickness <b>{tp} mm</b></div>", unsafe_allow_html=True)
+        if bearing_ok:
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Status:** Concrete bearing is adequate ($f_{{p,peak}} = {f_p_peak:.2f} \\le \\phi_c f_{{p,max}} = {f_p_max:.2f}$)")
         else:
-            st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Required thickness <b>{t_req:.2f} mm</b> > Actual thickness <b>{tp} mm</b> (please increase the plate thickness)</div>", unsafe_allow_html=True)
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;❌ **Status:** Concrete bearing exceeded — enlarge the plate (B, N) or increase $f'_c$")
 
+    with st.container(border=True):
+        st.markdown("##### 📌 Step 2: Calculate required plate thickness (Required Thickness)")
+        
+        # 1. คำนวณความหนาฝั่งรับแรงกด (Compression Side) จากแรงดันคอนกรีตเดิม
+        t_req_compression = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
+        
+        # 2. คำนวณความหนาฝั่งรับแรงดึง (Tension Side) จากแรงดึงในสลักเกลียววิกฤตตาม AISC Design Guide 1
+        t_req_tension = 0.0
+        f_arm = 0.0
+        b_eff = 1.0
+        
+        if max_t_actual > 0:
+            max_f_arm = 0.0
+            for _, row in edited_df.iterrows():
+                if row["Tension (kN)"] > 0:
+                    # คำนวณหา ระยะงัด f_arm จากแนวโบลต์ดึงถึงผิวปีกเสา (d/2) ในแกน Y
+                    arm = max(0.0, abs(row["Y (mm)"]) - (d / 2.0))
+                    if arm > max_f_arm:
+                        max_f_arm = arm
+            f_arm = max_f_arm
+            if f_arm > 0:
+                # AISC DG1: กำหนดความกว้างประสิทธิผลรับแรงดัดแผ่นเหล็กต่อโบลต์ 1 ตัว
+                b_eff = min(float(B), 3.5 * f_arm)
+                M_u_tension = max_t_actual * 1000.0 * f_arm  # หน่วย N-mm
+                t_req_tension = math.sqrt((4.0 * M_u_tension) / (0.90 * Fy_plate * b_eff))
+        
+        # เลือกค่าหนาที่สุดมาเป็นตัวควบคุมหลัก (Governing Value)
+        t_req = max(t_req_compression, t_req_tension)
+
+        # แสดงพารามิเตอร์การคำนวณแยกเป็น 2 ฝั่งเพื่อความชัดเจน
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**🔹 ฝั่งรับแรงกด (Compression Side Check):**")
+            st.markdown(f"- ระยะยื่น Cantilever ($m$) = {m_arm:.1f} mm")
+            st.markdown(f"- ระยะยื่น Cantilever ($n$) = {n_arm:.1f} mm")
+            l_crit = max(m_arm, n_arm)
+            st.markdown(f"$$ t_{{{{req,comp}}}} = l \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {t_req_compression:.2f} \\text{{ mm}} $$")
+            
+        with c2:
+            st.markdown("**🔸 ฝั่งรับแรงดึง (Tension Side Check):**")
+            if max_t_actual > 0 and f_arm > 0:
+                st.markdown(f"- แรงดึงวิกฤตสลักเกลียว ($T_{{{{u,max}}}}$) = {max_t_actual:.2f} kN")
+                st.markdown(f"- ระยะงัดถึงปีกเสา ($f_{{{{arm}}}}$) = {f_arm:.1f} mm")
+                st.markdown(f"- ความกว้างประสิทธิผล ($b_{{{{eff}}}}$) = {b_eff:.1f} mm")
+                st.markdown(f"$$ t_{{{{req,tens}}}} = \\sqrt{{\\frac{{4 (T_{{{{u,max}}}} \\cdot f_{{{{arm}}}})}}{{0.90 F_y b_{{{{eff}}}}}}} = {t_req_tension:.2f} \\text{{ mm}} $$")
+            else:
+                st.markdown("<div style='color: gray; padding-top: 10px;'>ไม่มีแรงดึงเกิดขึ้นในสลักเกลียว หรือไม่มีโบลต์อยู่นอกแนวปีกเสา (ไม่ต้องคำนวณหนาฝั่งดึง)</div>", unsafe_allow_html=True)
+        
+        st.divider()
+        st.markdown(f"**สรุปความหนาที่ควบคุมการออกแบบ:** $t_{{{{req}}}} = \\max({t_req_compression:.2f}, {t_req_tension:.2f}) = \\textbf{{{t_req:.2f} mm}}$")
+
+    if t_req <= tp:
+        st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Required thickness <b>{t_req:.2f} mm</b> $\\le$ Actual thickness <b>{tp} mm</b></div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Required thickness <b>{t_req:.2f} mm</b> > Actual thickness <b>{tp} mm</b> (please increase the plate thickness)</div>", unsafe_allow_html=True)
+        
     # ---------------- TAB 3: BOLT ----------------
     with tab_bolt:
         st.info(f"**Analysis method:** Bearing-block equilibrium (AISC Design Guide 1) | Bolts **{bolt_name}** | Number of bolts = **{num_bolts}**")
