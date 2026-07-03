@@ -495,7 +495,6 @@ with col_result:
             st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Max demand <b>{max_weld_demand:.2f} kN/mm</b> > Capacity <b>{weld_cap_per_mm:.2f} kN/mm</b> (please increase the weld size)</div>", unsafe_allow_html=True)
 
     # ---------------- TAB 2: PLATE ----------------
-
     with tab_plate:
         st.info(f"**Analysis assumptions:** AISC Design Guide 1 | SS400 plate steel (Yield Strength = **{Fy_plate:.0f} MPa**)")
 
@@ -565,20 +564,20 @@ with col_result:
                 st.markdown("**🔹 ฝั่งรับแรงกด (Compression Side Check):**")
                 st.markdown(f"- ระยะยื่น Cantilever ($m$) = {m_arm:.1f} mm")
                 st.markdown(f"- ระยะยื่น Cantilever ($n$) = {n_arm:.1f} mm")
-                st.markdown(f"$$ t_{{{{req,comp}}}} = \\max(m,n) \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {t_req_compression:.2f} \\text{{ mm}} $$")
+                st.markdown(f"$$ t_{{req,comp}} = \\max(m,n) \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {t_req_compression:.2f} \\text{{ mm}} $$")
                 
             with c2:
                 st.markdown("**🔸 ฝั่งรับแรงดึง (Tension Side Check):**")
                 if max_t_actual > 0 and f_arm > 0:
-                    st.markdown(f"- แรงดึงวิกฤตสลักเกลียว ($T_{{{{u,max}}}}$) = {max_t_actual:.2f} kN")
-                    st.markdown(f"- ระยะงัดถึงปีกเสา ($f_{{{{arm}}}}$) = {f_arm:.1f} mm")
-                    st.markdown(f"- ความกว้างประสิทธิผล ($b_{{{{eff}}}}$) = {b_eff:.1f} mm")
-                    st.markdown(f"$$ t_{{{{req,tens}}}} = \\sqrt{{\\frac{{4 (T_{{{{u,max}}}} \\cdot f_{{{{arm}}}})}}{{0.90 F_y b_{{{{eff}}}}}}} = {t_req_tension:.2f} \\text{{ mm}} $$")
+                    st.markdown(f"- แรงดึงวิกฤตสลักเกลียว ($T_{{u,max}}$) = {max_t_actual:.2f} kN")
+                    st.markdown(f"- ระยะงัดถึงปีกเสา ($f_{{arm}}$) = {f_arm:.1f} mm")
+                    st.markdown(f"- ความกว้างประสิทธิผล ($b_{{eff}}$) = {b_eff:.1f} mm")
+                    st.markdown(f"$$ t_{{req,tens}} = \\sqrt{{\\frac{{4 (T_{{u,max}} \\cdot f_{{arm}})}}{{0.90 F_y b_{{eff}}}}}} = {t_req_tension:.2f} \\text{{ mm}} $$")
                 else:
                     st.markdown("<div style='color: gray; padding-top: 10px;'>ไม่มีแรงดึงเกิดขึ้นในสลักเกลียว หรือไม่มีโบลต์อยู่นอกแนวปีกเสา (ไม่ต้องคำนวณหนาฝั่งดึง)</div>", unsafe_allow_html=True)
             
             st.divider()
-            st.markdown(f"**สรุปความหนาที่ควบคุมการออกแบบ:** $t_{{{{req}}}} = \\max({t_req_compression:.2f}, {t_req_tension:.2f}) = \\textbf{{{t_req:.2f} mm}}$")
+            st.markdown(f"**สรุปความหนาที่ควบคุมการออกแบบ:** $t_{{req}} = \\max({t_req_compression:.2f}, {t_req_tension:.2f}) = \\textbf{{{t_req:.2f}}} \\text{{ mm}}$")
 
         if t_req <= tp:
             st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Required thickness <b>{t_req:.2f} mm</b> $\\le$ Actual thickness <b>{tp} mm</b></div>", unsafe_allow_html=True)
