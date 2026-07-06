@@ -1,149 +1,44 @@
 # app.py
+"""
+AISC Steel-Connection Ultimate Engine — Streamlit front end.
+
+This module is UI orchestration only. All engineering math lives in
+calculations.py (pure functions) and the lookup tables live in
+constants.py. Keeping the split this way means the calculations can be
+unit-tested (see tests/test_calculations.py) without spinning up Streamlit.
+"""
+
 import math
+
 import pandas as pd
-import streamlit as st
 import plotly.graph_objects as go
+import streamlit as st
+
+from calculations import (
+    bolt_steel_capacities,
+    check_bolt_geometry,
+    check_concrete_capacities,
+    compute_bearing_regime,
+    default_bolt_layout,
+    default_plate_size,
+    design_perimeter_weld,
+    plate_thickness_compression_side,
+    plate_thickness_tension_side,
+    solve_bearing_block_bolts,
+)
+from constants import (
+    STEEL_PLATE_GRADES,
+    THAI_ANCHOR_BOLTS,
+    THAI_H_BEAM_PROFILES,
+    THAI_PLATE_THICKNESSES,
+    WELD_ELECTRODE_GRADES,
+)
 
 # ==========================================
-# 1. METRIC DATABASE & STANDARDS
+# Page config & styling
 # ==========================================
-THAI_H_BEAM_PROFILES = {
-    "H 200x200x8x12": {"d": 200.0, "bf": 200.0, "tw": 8.0, "tf": 12.0},
-    "H 250x250x9x14": {"d": 250.0, "bf": 250.0, "tw": 9.0, "tf": 14.0},
-    "H 300x300x10x15": {"d": 300.0, "bf": 300.0, "tw": 10.0, "tf": 15.0},
-    "H 350x350x12x19": {"d": 350.0, "bf": 350.0, "tw": 12.0, "tf": 19.0},
-    "H 400x400x13x21": {"d": 400.0, "bf": 400.0, "tw": 13.0, "tf": 21.0}
-}
-
-THAI_ANCHOR_BOLTS = {
-    "M16 (Grade 4.6)": {"dia": 16.0, "area": 157.0, "F_nt": 300.0, "F_nv": 180.0, "min_edge": 22.0},
-    "M20 (Grade 4.6)": {"dia": 20.0, "area": 245.0, "F_nt": 300.0, "F_nv": 180.0, "min_edge": 26.0},
-    "M24 (Grade 4.6)": {"dia": 24.0, "area": 353.0, "F_nt": 300.0, "F_nv": 180.0, "min_edge": 32.0},
-    "M30 (Grade 8.8)": {"dia": 30.0, "area": 561.0, "F_nt": 600.0, "F_nv": 360.0, "min_edge": 38.0},
-    "M36 (Grade 8.8)": {"dia": 36.0, "area": 817.0, "F_nt": 600.0, "F_nv": 360.0, "min_edge": 46.0}
-}
-
-THAI_PLATE_THICKNESSES = [12, 16, 19, 22, 25, 28, 32, 38, 50]
-
-STEEL_PLATE_GRADES = {
-    "SS400 (Fy = 245 MPa)": {"Fy": 245.0, "Fu": 400.0},
-    "SM490 (Fy = 325 MPa)": {"Fy": 325.0, "Fu": 490.0},
-    "SM520 (Fy = 365 MPa)": {"Fy": 365.0, "Fu": 520.0}
-}
-
-WELD_ELECTRODE_GRADES = {
-    "E70XX (F_exx = 490 MPa)": {"F_exx": 490.0},
-    "E60XX (F_exx = 415 MPa)": {"F_exx": 415.0},
-    "E80XX (F_exx = 550 MPa)": {"F_exx": 550.0}
-}
-
-# --- ฟังก์ชันเช็กกำลังคอนกรีต (ACI 318 Simplified) ---
-def check_concrete_capacities(f_c_prime, h_ef, c_edge, d_b):
-    phi_pullout = 0.70
-    A_brg = 1.5 * (math.pi * (d_b**2) / 4.0) 
-    N_p = 8.0 * A_brg * f_c_prime
-    phi_N_pn = (phi_pullout * N_p) / 1000.0
-    
-    A_N0 = 9.0 * (h_ef ** 2)
-    A_N = A_N0 
-    if c_edge < 1.5 * h_ef:
-        A_N = (c_edge + 1.5 * h_ef) * (3.0 * h_ef)
-    
-    N_b = 10.0 * math.sqrt(f_c_prime) * (h_ef ** 1.5)
-    
-    psi_ed = 1.0
-    if c_edge < 1.5 * h_ef:
-        psi_ed = 0.7 + 0.3 * (c_edge / (1.5 * h_ef))
-        
-    N_cb = (A_N / A_N0) * psi_ed * N_b
-    phi_breakout = 0.70
-    phi_N_cb = (phi_breakout * N_cb) / 1000.0
-    
-    return {"phi_N_cb": phi_N_cb, "phi_N_pn": phi_N_pn}
-
-
-def solve_bearing_block_bolts(P_u, M_u, B, N, bolt_coords, q_max):
-    bolts = [(x, y) for (x, y) in bolt_coords]
-    n = len(bolts)
-    if n == 0:
-        return {"ok": False, "case": "no-bolts", "tensions": []}
-
-    Y_min = P_u / (q_max * B) if (q_max * B) > 0 else 0.0
-
-    e = M_u / P_u if P_u > 0 else float("inf")
-    if P_u > 0 and e <= N / 2.0:
-        return {"ok": True, "case": "bearing-only", "Y": None, "C": P_u,
-                "total_T": 0.0, "y_NA": None,
-                "tensions": [0.0] * n, "resid_F": 0.0, "resid_M": 0.0}
-
-    if Y_min >= N - 1.0:
-        return {"ok": False, "case": "pu-too-large",
-                "reason": "P_u exceeds max bearing (q_max*B*N); enlarge plate.",
-                "tensions": [0.0] * n}
-
-    def state(Y):
-        y_NA = -N / 2.0 + Y
-        tb = [y for (_, y) in bolts if y > y_NA + 1e-6]
-        if not tb:
-            return None
-        C = q_max * B * Y
-        arms = [y - y_NA for y in tb]
-        k = max(0.0, (C - P_u) / sum(arms))
-        Ts = [k * a for a in arms]
-        M_resist = C * (N / 2.0 - Y / 2.0) + sum(T * y for T, y in zip(Ts, tb))
-        return y_NA, tb, Ts, C, k, M_resist
-
-    Y_lo, Y_hi = max(Y_min, 1.0), N - 1.0
-    samples = 400
-    grid = [Y_lo + (Y_hi - Y_lo) * i / samples for i in range(samples + 1)]
-    st_grid = [state(Y) for Y in grid]
-    resids = [(s[5] - M_u) if s else None for s in st_grid]
-
-    solution = None
-    for i in range(samples):
-        r1, r2 = resids[i], resids[i + 1]
-        if r1 is None or r2 is None:
-            continue
-        if (r1 >= 0) != (r2 >= 0):
-            lo, hi = grid[i], grid[i + 1]
-            # [ปรับปรุง] ลดรอบ Bisection ลงเหลือ 30 รอบ ช่วยประหยัด CPU 
-            for _ in range(30):
-                mid = 0.5 * (lo + hi)
-                sm = state(mid)
-                rm = (sm[5] - M_u) if sm else r1
-                rlo = state(lo)[5] - M_u
-                if (rlo >= 0) != (rm >= 0):
-                    hi = mid
-                else:
-                    lo = mid
-            solution = state(0.5 * (lo + hi))
-            Y_sol = 0.5 * (lo + hi)
-            break
-
-    if solution is None:
-        return {"ok": False, "case": "insufficient-capacity",
-                "reason": "Bearing + bolts cannot develop M_u; add bolts/plate/anchor capacity.",
-                "tensions": [0.0] * n}
-
-    y_NA, tb, Ts, C, k, _ = solution
-    tensions = []
-    ti = 0
-    for (_, y) in bolts:
-        if y > y_NA + 1e-6:
-            tensions.append(Ts[ti] / 1000.0); ti += 1
-        else:
-            tensions.append(0.0)
-    total_T = sum(Ts)
-    resid_F = C - P_u - total_T
-    resid_M = C * (N / 2.0 - Y_sol / 2.0) + sum(T * y for T, y in zip(Ts, tb)) - M_u
-    return {"ok": True, "case": "uplift", "Y": Y_sol, "C": C, "k": k,
-            "y_NA": y_NA, "total_T_kN": total_T / 1000.0,
-            "tensions": tensions, "resid_F": resid_F, "resid_M": resid_M}
-
-
 st.set_page_config(page_title="AISC Ultra-Matrix Connection Engine", layout="wide")
 
-# CSS Styling
 st.markdown("""
     <style>
     .main-title { font-size: 2.0rem; font-weight: 800; color: #1e293b; text-align: left; padding-bottom: 2px; }
@@ -155,15 +50,28 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("<div class='main-title'>🛡️ AISC Steel-Connection Ultimate Engine</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-title'>Independent bolt-group coordinate engine with edge-distance checks, steel-interference checks, and weld force distribution per AISC LRFD</div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='sub-title'>Independent bolt-group coordinate engine with edge-distance checks, "
+    "steel-interference checks, and weld force distribution per AISC LRFD</div>",
+    unsafe_allow_html=True,
+)
+
+
+def reset_layout_for_profile(prof: dict) -> None:
+    """(Re)initialize plate size and bolt grid session state for a column profile."""
+    B, N = default_plate_size(prof["bf"], prof["d"])
+    st.session_state["plate_B"] = B
+    st.session_state["plate_N"] = N
+    st.session_state["grid_data"] = pd.DataFrame(default_bolt_layout(prof["bf"], prof["d"]))
+
 
 # ==========================================
-# 2. DEFINING THE 3-COLUMN STUDIO LAYOUT
+# 3-column studio layout
 # ==========================================
 col_input, col_matrix, col_result = st.columns([0.9, 1.0, 1.1])
 
 # ------------------------------------------
-# COLUMN 1: STRUCTURAL INPUT PARAMETERS
+# COLUMN 1: Structural input parameters
 # ------------------------------------------
 with col_input:
     st.markdown("<div class='column-title'>🎛️ 1. Connection Section & Factored Loads</div>", unsafe_allow_html=True)
@@ -171,65 +79,56 @@ with col_input:
     selected_profile = st.selectbox("Connected steel column section (H-Beam TIS):", list(THAI_H_BEAM_PROFILES.keys()), index=2)
     prof = THAI_H_BEAM_PROFILES[selected_profile]
 
-    # [ปรับปรุง] ระบบจัดการเวอร์ชันและอัปเดตเพลทเมื่อเปลี่ยนขนาดเสา (Auto-Update Plate on Column Change)
     if "active_profile" not in st.session_state:
         st.session_state["active_profile"] = selected_profile
         st.session_state["plate_version"] = 0
-        st.session_state["plate_B"] = float(math.ceil((prof["bf"] + 150) / 10) * 10)
-        st.session_state["plate_N"] = float(math.ceil((prof["d"] + 160) / 10) * 10)
-        init_x, init_y = (prof["bf"] / 2.0) + 45.0, (prof["d"] / 2.0) + 50.0
-        st.session_state["grid_data"] = pd.DataFrame({
-            "Bolt ID": ["B1", "B2", "B3", "B4", "B5", "B6"],
-            "X (mm)": [-init_x, init_x, -init_x, init_x, -init_x, init_x],
-            "Y (mm)": [init_y, init_y, 0.0, 0.0, -init_y, -init_y]
-        })
+        reset_layout_for_profile(prof)
 
     if st.session_state["active_profile"] != selected_profile:
         st.session_state["active_profile"] = selected_profile
         st.session_state["plate_version"] += 1
-        st.session_state["plate_B"] = float(math.ceil((prof["bf"] + 150) / 10) * 10)
-        st.session_state["plate_N"] = float(math.ceil((prof["d"] + 160) / 10) * 10)
-        init_x, init_y = (prof["bf"] / 2.0) + 45.0, (prof["d"] / 2.0) + 50.0
-        st.session_state["grid_data"] = pd.DataFrame({
-            "Bolt ID": ["B1", "B2", "B3", "B4", "B5", "B6"],
-            "X (mm)": [-init_x, init_x, -init_x, init_x, -init_x, init_x],
-            "Y (mm)": [init_y, init_y, 0.0, 0.0, -init_y, -init_y]
-        })
+        reset_layout_for_profile(prof)
         st.rerun()
 
     with st.container(border=True):
         st.caption("📐 Steel section dimensions (mm)")
         c1, c2 = st.columns(2)
-        d = c1.number_input("Depth d", value=prof["d"])
-        bf = c2.number_input("Flange width bf", value=prof["bf"])
-        tw = c1.number_input("Web thickness tw", value=prof["tw"])
-        tf = c2.number_input("Flange thickness tf", value=prof["tf"])
+        d = c1.number_input("Depth d", value=prof["d"], min_value=50.0, step=1.0)
+        bf = c2.number_input("Flange width bf", value=prof["bf"], min_value=50.0, step=1.0)
+        tw = c1.number_input("Web thickness tw", value=prof["tw"], min_value=1.0, step=0.5)
+        tf = c2.number_input("Flange thickness tf", value=prof["tf"], min_value=1.0, step=0.5)
 
     with st.container(border=True):
         st.caption("🏗️ Material Properties (เกรดวัสดุ)")
         cx_m1, cx_m2 = st.columns(2)
-        
+
         selected_plate_grade = cx_m1.selectbox("Base Plate Grade (เกรดเหล็ก):", list(STEEL_PLATE_GRADES.keys()), index=0)
         Fy_plate = STEEL_PLATE_GRADES[selected_plate_grade]["Fy"]
-        
+
         selected_weld_grade = cx_m2.selectbox("Weld Electrode (เกรดลวดเชื่อม):", list(WELD_ELECTRODE_GRADES.keys()), index=0)
         F_exx = WELD_ELECTRODE_GRADES[selected_weld_grade]["F_exx"]
 
     with st.container(border=True):
         st.caption("⚡ Factored loads & Concrete info")
         cx1, cx2 = st.columns(2)
-        p_u_kn = cx1.number_input("Axial comp. Pu (kN)", value=500.0)
-        v_u_kn = cx2.number_input("Shear Vu (kN)", value=100.0)
-        m_u_knm = cx1.number_input("Moment Mu (kN-m)", value=140.0)
-        fc_mpa = cx2.number_input("Concrete f'c (MPa)", value=28.0)
-        
+        p_u_kn = cx1.number_input("Axial comp. Pu (kN)", value=500.0, min_value=0.0)
+        v_u_kn = cx2.number_input("Shear Vu (kN)", value=100.0, min_value=0.0)
+        m_u_knm = cx1.number_input("Moment Mu (kN-m)", value=140.0, min_value=0.0)
+        fc_mpa = cx2.number_input("Concrete f'c (MPa)", value=28.0, min_value=1.0)
+
         h_ef = cx1.number_input("Embedment Depth h_ef (mm)", value=250.0, min_value=50.0)
         c_edge = cx2.number_input("Concrete Edge c_a1 (mm)", value=200.0, min_value=10.0)
 
     with st.container(border=True):
         st.caption("🔩 Base plate and anchor bolt sizes")
-        B = st.number_input("Plate width B (mm)", value=st.session_state["plate_B"], key=f"B_{st.session_state['plate_version']}")
-        N = st.number_input("Plate length N (mm)", value=st.session_state["plate_N"], key=f"N_{st.session_state['plate_version']}")
+        B = st.number_input(
+            "Plate width B (mm)", value=st.session_state["plate_B"], min_value=100.0,
+            key=f"B_{st.session_state['plate_version']}",
+        )
+        N = st.number_input(
+            "Plate length N (mm)", value=st.session_state["plate_N"], min_value=100.0,
+            key=f"N_{st.session_state['plate_version']}",
+        )
 
         tp = st.selectbox("Plate thickness tp (mm)", THAI_PLATE_THICKNESSES, index=3)
         bolt_name = st.selectbox("Select anchor bolt size", list(THAI_ANCHOR_BOLTS.keys()), index=2)
@@ -240,7 +139,7 @@ with col_input:
     weld_size_mm = st.slider("Actual fillet weld leg size (mm):", 3, 16, 8)
 
 # ------------------------------------------
-# COLUMN 2: INTERACTIVE COORDINATE MATRIX & ALERTS
+# COLUMN 2: Interactive coordinate matrix & geometry alerts
 # ------------------------------------------
 with col_matrix:
     st.markdown("<div class='column-title'>🎯 2. Bolt Coordinates & Layout</div>", unsafe_allow_html=True)
@@ -257,8 +156,10 @@ with col_matrix:
             sign_x = 1.0 if curr_x >= 0 else -1.0
             sign_y = 1.0 if curr_y >= 0 else -1.0
 
-            if abs(curr_x) < init_x: curr_x = init_x * sign_x
-            if abs(curr_y) < (d/2.0) + 35.0 and abs(curr_y) > 0.0: curr_y = init_y * sign_y
+            if abs(curr_x) < init_x:
+                curr_x = init_x * sign_x
+            if abs(curr_y) < (d / 2.0) + 35.0 and abs(curr_y) > 0.0:
+                curr_y = init_y * sign_y
 
             fixed_matrix.at[idx, "X (mm)"] = curr_x
             fixed_matrix.at[idx, "Y (mm)"] = curr_y
@@ -277,34 +178,32 @@ with col_matrix:
 
         st.rerun()
 
-    edited_df = st.data_editor(st.session_state["grid_data"], num_rows="dynamic", use_container_width=True)
+    # Explicit key tied to plate_version: without this, Streamlit's
+    # data_editor keeps its own internal widget state after the first
+    # render and silently ignores programmatic updates to grid_data made
+    # by "Auto-Resize" or a column-profile change (a real bug in the
+    # original app — the editor could visually go stale after those
+    # actions). Bumping plate_version remounts the widget with fresh data.
+    edited_df = st.data_editor(
+        st.session_state["grid_data"],
+        num_rows="dynamic",
+        use_container_width=True,
+        key=f"bolt_grid_{st.session_state['plate_version']}",
+    )
     st.session_state["grid_data"] = edited_df
     num_bolts = len(edited_df)
 
-    # [ปรับปรุง] Guard Clause เพื่อป้องกัน Zero-Bolt Crash
     if num_bolts == 0:
         st.error("❌ ข้อมูลขัดข้อง: ต้องมี Anchor Bolt อย่างน้อย 1 ตัวในระบบเพื่อทำการคำนวณ โปรดเพิ่มโบลต์เพื่อดำเนินการต่อ")
         st.stop()
 
-    geometric_errors = []
     min_s_req = 2.67 * d_b
     min_edge_req = bolt_profile["min_edge"]
-
-    if num_bolts > 0:
-        for idx, row in edited_df.iterrows():
-            bx, by, bid = row["X (mm)"], row["Y (mm)"], row["Bolt ID"]
-            actual_min_edge = min((B / 2.0) - bx, bx - (-B / 2.0), (N / 2.0) - by, by - (-N / 2.0))
-            if actual_min_edge < min_edge_req:
-                geometric_errors.append(f"❌ <b>{bid}:</b> Plate edge distance too short ({actual_min_edge:.1f} mm < {min_edge_req} mm)")
-            if (abs(by) <= (d/2.0) + 35.0) and (abs(bx) <= (bf/2.0) + 35.0):
-                geometric_errors.append(f"❌ <b>{bid}:</b> Falls inside the conflict zone — hits the column or too tight for a wrench")
-
-        for i in range(num_bolts):
-            for j in range(i + 1, num_bolts):
-                b1, b2 = edited_df.iloc[i], edited_df.iloc[j]
-                dist = math.sqrt((b1["X (mm)"] - b2["X (mm)"])**2 + (b1["Y (mm)"] - b2["Y (mm)"])**2)
-                if dist < min_s_req:
-                    geometric_errors.append(f"⚠️ <b>{b1['Bolt ID']}-{b2['Bolt ID']}:</b> Spacing too close ({dist:.1f} mm < {min_s_req:.1f} mm)")
+    bolts_for_check = [
+        (row["Bolt ID"], row["X (mm)"], row["Y (mm)"])
+        for _, row in edited_df.iterrows()
+    ]
+    geometric_errors = check_bolt_geometry(bolts_for_check, B, N, bf, d, min_edge_req, min_s_req)
 
     st.markdown("#### 🚨 Geometry & Distance Checker")
     if geometric_errors:
@@ -313,126 +212,52 @@ with col_matrix:
         st.markdown("<div class='rec-card'>✅ <b>Passes all geometry criteria</b> — no column interference</div>", unsafe_allow_html=True)
 
 # ------------------------------------------
-# COLUMN 3: ENGINEERING DASHBOARD & 3D MODEL
+# COLUMN 3: Engineering dashboard & 3D model
 # ------------------------------------------
 with col_result:
     st.markdown("<div class='column-title'>📊 3. Engineering Summary & 3D Model</div>", unsafe_allow_html=True)
 
-    P_u_n, V_u_n, M_u_nmm = p_u_kn * 1000.0, v_u_kn * 1000.0, m_u_knm * 1000000.0
+    P_u_n, V_u_n, M_u_nmm = p_u_kn * 1000.0, v_u_kn * 1000.0, m_u_knm * 1_000_000.0
 
-    I_y_group = sum(edited_df["Y (mm)"]**2) if num_bolts > 0 else 1.0
+    I_x_group = float((edited_df["Y (mm)"] ** 2).sum()) if num_bolts > 0 else 1.0
 
-    l_flange = 4.0 * bf
-    l_web = 2.0 * (d - (2.0 * tf)) if (d - (2.0 * tf)) > 0 else 1.0
-    l_total = l_flange + l_web
+    weld_res = design_perimeter_weld(P_u_n, V_u_n, M_u_nmm, d, bf, tf, weld_size_mm, F_exx, tp)
 
-    weld_stress_axial = (P_u_n / l_total) / 1000.0 if l_total > 0 else 0
-    weld_stress_moment = (M_u_nmm / (2.0 * bf * (d - tf))) / 1000.0 if bf > 0 else 0
-    weld_stress_shear = (V_u_n / l_web) / 1000.0 if l_web > 0 else 0
+    bearing = compute_bearing_regime(P_u_n, M_u_nmm, B, N, fc_mpa)
+    f_p_max = bearing.f_p_max_capacity
+    bearing_actual = bearing.f_p_peak
 
-    total_demand_flange = weld_stress_axial + weld_stress_moment
-    total_demand_web = math.sqrt(weld_stress_axial**2 + weld_stress_shear**2)
-    max_weld_demand = max(total_demand_flange, total_demand_web)
-
-    weld_cap_per_mm = 0.75 * 0.60 * F_exx * 0.707 * weld_size_mm / 1000.0
-
-    min_weld_req = 5 if tp <= 13 else (6 if tp <= 19 else 8)
-    strength_weld_req = max_weld_demand / (0.75 * 0.60 * F_exx * 0.707 / 1000.0)
-    final_weld_size = max(min_weld_req, math.ceil(strength_weld_req))
-
-    phi_c = 0.65
-    f_p_max = phi_c * 0.85 * fc_mpa
-    ecc = M_u_nmm / P_u_n if P_u_n > 0 else 0.0
-
-    e_kern = N / 6.0
-    e_edge = N / 2.0
-    if P_u_n <= 0:
-        bearing_case = "no-compression"
-        f_p_min = f_p_max_edge = f_p_peak = 0.0
-        Y_bearing = 0.0
-        bearing_ok = False
-    elif ecc <= e_kern:
-        bearing_case = "full"
-        q_mean = P_u_n / (B * N)
-        f_p_min = q_mean * (1.0 - 6.0 * ecc / N)
-        f_p_max_edge = q_mean * (1.0 + 6.0 * ecc / N)
-        f_p_peak = f_p_max_edge
-        Y_bearing = float(N)
-        bearing_ok = f_p_peak <= f_p_max
-    elif ecc < e_edge:
-        bearing_case = "partial"
-        Y_bearing = 1.5 * N - 3.0 * ecc
-        f_p_peak = (2.0 * P_u_n) / (B * Y_bearing) if Y_bearing > 0 else f_p_max
-        f_p_max_edge = f_p_peak
-        f_p_min = 0.0
-        bearing_ok = f_p_peak <= f_p_max
-    else:
-        bearing_case = "uplift"
-        Y_bearing = 0.0
-        f_p_peak = f_p_max
-        f_p_max_edge = f_p_peak
-        f_p_min = 0.0
-        bearing_ok = False
-
-    bearing_actual = f_p_peak
-
-    m_arm = (N - 0.95 * d) / 2.0
-    n_arm = (B - 0.80 * bf) / 2.0
-    
-    t_req_compression = max(m_arm, n_arm) * math.sqrt((2.0 * bearing_actual) / (0.90 * Fy_plate))
+    m_arm, n_arm, t_req_compression = plate_thickness_compression_side(N, d, B, bf, bearing_actual, Fy_plate)
 
     bolt_coords = list(zip(edited_df["X (mm)"].astype(float), edited_df["Y (mm)"].astype(float)))
     bolt_sol = solve_bearing_block_bolts(P_u_n, M_u_nmm, B, N, bolt_coords, f_p_max)
-    if bolt_sol["ok"]:
-        edited_df["Tension (kN)"] = bolt_sol["tensions"]
-    else:
-        edited_df["Tension (kN)"] = [0.0] * num_bolts
+    edited_df["Tension (kN)"] = bolt_sol.tensions if bolt_sol.ok else [0.0] * num_bolts
     tensions = list(edited_df["Tension (kN)"])
-    bolt_case = bolt_sol.get("case", "unknown")
+    bolt_case = bolt_sol.case
 
-    max_t_actual = max(tensions) if tensions else 0
-    
-    t_req_tension = 0.0
-    f_arm = 0.0
-    b_eff = 1.0
-    if max_t_actual > 0:
-        max_f_arm = 0.0
-        for _, row in edited_df.iterrows():
-            if row["Tension (kN)"] > 0:
-                arm = max(0.0, abs(row["Y (mm)"]) - (d / 2.0))
-                if arm > max_f_arm: max_f_arm = arm
-        f_arm = max_f_arm
-        if f_arm > 0:
-            b_eff = min(float(B), 3.5 * f_arm)
-            M_u_tension = max_t_actual * 1000.0 * f_arm
-            t_req_tension = math.sqrt((4.0 * M_u_tension) / (0.90 * Fy_plate * b_eff))
+    tension_and_y = list(zip(edited_df["Tension (kN)"], edited_df["Y (mm)"]))
+    max_t_actual, f_arm, b_eff, t_req_tension = plate_thickness_tension_side(tension_and_y, d, B, Fy_plate)
 
     t_req = max(t_req_compression, t_req_tension)
 
-    bolt_t_cap = (0.75 * bolt_profile["F_nt"] * bolt_profile["area"]) / 1000.0
-    bolt_v_cap = (0.75 * bolt_profile["F_nv"] * bolt_profile["area"]) / 1000.0
-    max_v_actual = v_u_kn / num_bolts if num_bolts > 0 else 0.0
+    bolt_cap = bolt_steel_capacities(bolt_profile["F_nt"], bolt_profile["F_nv"], bolt_profile["area"], v_u_kn, num_bolts)
+    bolt_t_cap = bolt_cap.tension_capacity_kN
+    bolt_v_cap = bolt_cap.shear_capacity_kN
+    max_v_actual = bolt_cap.shear_per_bolt_kN
+    f_rv = bolt_cap.f_rv
+    F_nt_prime = bolt_cap.F_nt_prime
+    bolt_t_cap_int = bolt_cap.tension_capacity_with_shear_kN
 
-    F_nt_b = bolt_profile["F_nt"]
-    F_nv_b = bolt_profile["F_nv"]
-    A_b = bolt_profile["area"]
-    phi_b = 0.75
-    f_rv = (max_v_actual * 1000.0) / A_b if A_b > 0 else 0.0
-    F_nt_prime = 1.3 * F_nt_b - (F_nt_b / (phi_b * F_nv_b)) * f_rv
-    F_nt_prime = min(F_nt_b, max(0.0, F_nt_prime))
-    bolt_t_cap_int = (phi_b * F_nt_prime * A_b) / 1000.0
-
-    # --- 3D INTERACTIVE GRAPHICS ENGINE ---
+    # --- 3D interactive graphics ---
     fig = go.Figure()
-    
-    # [ปรับปรุง] 3D Visual Conflict Zone 
-    cz_x = bf/2.0 + 35.0
-    cz_y = d/2.0 + 35.0
+
+    cz_x = bf / 2.0 + 35.0
+    cz_y = d / 2.0 + 35.0
     fig.add_trace(go.Mesh3d(
         x=[-cz_x, cz_x, cz_x, -cz_x, -cz_x, cz_x, cz_x, -cz_x],
         y=[-cz_y, -cz_y, cz_y, cz_y, -cz_y, -cz_y, cz_y, cz_y],
-        z=[tp, tp, tp, tp, tp+150, tp+150, tp+150, tp+150],
-        color='#ef4444', opacity=0.15, name='Conflict Zone', hoverinfo='skip'
+        z=[tp, tp, tp, tp, tp + 150, tp + 150, tp + 150, tp + 150],
+        color='#ef4444', opacity=0.15, name='Conflict Zone', hoverinfo='skip',
     ))
 
     fig.add_trace(go.Mesh3d(x=[-B/2, B/2, B/2, -B/2, -B/2, B/2, B/2, -B/2], y=[-N/2, -N/2, N/2, N/2, -N/2, -N/2, N/2, N/2], z=[0, 0, 0, 0, tp, tp, tp, tp], color='#475569', opacity=0.85, name='Plate'))
@@ -474,7 +299,7 @@ with col_result:
 
 
 # =========================================================================
-# 3. DETAILED CALCULATION TABS 
+# Detailed calculation tabs
 # =========================================================================
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.markdown("### 📝 รายการคำนวณอย่างละเอียด (Detailed Calculation Reports)")
@@ -487,41 +312,41 @@ with tab_weld:
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 1: Analyze force demand on the weld (Demand)")
-        st.caption(f"Flange weld length ($L_f$) = {l_flange:.0f} mm | Web weld length ($L_w$) = {l_web:.0f} mm")
+        st.caption(f"Flange weld length ($L_f$) = {weld_res.l_flange:.0f} mm | Web weld length ($L_w$) = {weld_res.l_web:.0f} mm")
 
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown(f"- **Axial stress:** $f_a = \\frac{{P_u}}{{L_f + L_w}} = {weld_stress_axial:.2f}$ kN/mm")
-            st.markdown(f"- **Bending stress (flange):** $f_m = \\frac{{M_u}}{{2 b_f (d - t_f)}} = {weld_stress_moment:.2f}$ kN/mm")
+            st.markdown(f"- **Axial stress:** $f_a = \\frac{{P_u}}{{L_f + L_w}} = {weld_res.stress_axial:.2f}$ kN/mm")
+            st.markdown(f"- **Bending stress (flange):** $f_m = \\frac{{M_u}}{{2 b_f (d - t_f)}} = {weld_res.stress_moment:.2f}$ kN/mm")
         with c2:
-            st.markdown(f"- **Shear stress (web):** $f_v = \\frac{{V_u}}{{L_w}} = {weld_stress_shear:.2f}$ kN/mm")
+            st.markdown(f"- **Shear stress (web):** $f_v = \\frac{{V_u}}{{L_w}} = {weld_res.stress_shear:.2f}$ kN/mm")
 
         st.divider()
         st.markdown(f"""
         **Critical resultant demand (Maximum Resultant Demand):**
-        - Flange (axial + bending): $f_{{req,f}} = f_a + f_m =$ **{total_demand_flange:.2f} kN/mm**
-        - Web (axial + shear): $f_{{req,w}} = \\sqrt{{f_a^2 + f_v^2}} =$ **{total_demand_web:.2f} kN/mm**
+        - Flange (axial + bending): $f_{{req,f}} = f_a + f_m =$ **{weld_res.demand_flange:.2f} kN/mm**
+        - Web (axial + shear): $f_{{req,w}} = \\sqrt{{f_a^2 + f_v^2}} =$ **{weld_res.demand_web:.2f} kN/mm**
         """)
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 2: Weld capacity (Capacity)")
         st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times F_{{EXX}} \\times 0.707 \\times a $$")
-        st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times {F_exx:.0f} \\times 0.707 \\times ({weld_size_mm} / 1000) = {weld_cap_per_mm:.2f} \\text{{ kN/mm}} $$")
+        st.markdown(f"$$ \\phi R_n = 0.75 \\times 0.60 \\times {F_exx:.0f} \\times 0.707 \\times ({weld_size_mm} / 1000) = {weld_res.capacity_per_mm:.2f} \\text{{ kN/mm}} $$")
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 3: Recommended weld size (Sizing)")
-        st.markdown(f"- **Constructability minimum** (by plate thickness): **{min_weld_req} mm**")
-        st.markdown(f"- **Strength requirement** ($a_{{strength}} = f_{{req}} / \\phi R_{{n,per\\,mm}}$): **{strength_weld_req:.2f} mm**")
-        st.markdown(f"$$ a_{{req}} = \\max({min_weld_req},\\; \\lceil {strength_weld_req:.2f} \\rceil) = \\textbf{{{final_weld_size} mm}} $$")
-        if weld_size_mm >= final_weld_size:
-            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Actual weld size ({weld_size_mm} mm) ≥ recommended ({final_weld_size} mm)**")
+        st.markdown(f"- **Constructability minimum** (by plate thickness): **{weld_res.min_size_constructability} mm**")
+        st.markdown(f"- **Strength requirement** ($a_{{strength}} = f_{{req}} / \\phi R_{{n,per\\,mm}}$): **{weld_res.strength_required_size:.2f} mm**")
+        st.markdown(f"$$ a_{{req}} = \\max({weld_res.min_size_constructability},\\; \\lceil {weld_res.strength_required_size:.2f} \\rceil) = \\textbf{{{weld_res.recommended_size} mm}} $$")
+        if weld_size_mm >= weld_res.recommended_size:
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Actual weld size ({weld_size_mm} mm) ≥ recommended ({weld_res.recommended_size} mm)**")
         else:
-            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚠️ **Actual weld size ({weld_size_mm} mm) < recommended ({final_weld_size} mm) — size up**")
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚠️ **Actual weld size ({weld_size_mm} mm) < recommended ({weld_res.recommended_size} mm) — size up**")
 
-    if max_weld_demand <= weld_cap_per_mm:
-        st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Max demand <b>{max_weld_demand:.2f} kN/mm</b> $\\le$ Capacity <b>{weld_cap_per_mm:.2f} kN/mm</b></div>", unsafe_allow_html=True)
+    if weld_res.passes:
+        st.markdown(f"<div class='rec-card'>✅ <b>PASS:</b> Max demand <b>{weld_res.max_demand:.2f} kN/mm</b> $\\le$ Capacity <b>{weld_res.capacity_per_mm:.2f} kN/mm</b></div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Max demand <b>{max_weld_demand:.2f} kN/mm</b> > Capacity <b>{weld_cap_per_mm:.2f} kN/mm</b> (please increase the weld size)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='danger-card'>❌ <b>FAIL:</b> Max demand <b>{weld_res.max_demand:.2f} kN/mm</b> > Capacity <b>{weld_res.capacity_per_mm:.2f} kN/mm</b> (please increase the weld size)</div>", unsafe_allow_html=True)
 
 # ---------------- TAB 2: PLATE ----------------
 with tab_plate:
@@ -529,7 +354,7 @@ with tab_plate:
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 1: Check concrete bearing pressure (Bearing Pressure)")
-        st.markdown(f"Load eccentricity $e = M_u/P_u = {ecc:.1f}$ mm  |  Kern $= N/6 = {e_kern:.1f}$ mm  |  Edge $= N/2 = {e_edge:.1f}$ mm")
+        st.markdown(f"Load eccentricity $e = M_u/P_u = {bearing.eccentricity:.1f}$ mm  |  Kern $= N/6 = {bearing.e_kern:.1f}$ mm  |  Edge $= N/2 = {bearing.e_edge:.1f}$ mm")
 
         regime_map = {
             "no-compression": ("⚠️ No axial compression — bearing cannot form; bolts/uplift govern (#4).", "danger"),
@@ -537,40 +362,40 @@ with tab_plate:
             "partial":        ("ℹ️ Partial contact: triangular pressure over length $Y$ from the compression edge ($N/6 < e < N/2$).", "info"),
             "uplift":         ("⚠️ Resultant outside the plate ($e \\ge N/2$): bearing alone cannot equilibrate — bolts must anchor the uplift.", "danger"),
         }
-        banner_text, banner_kind = regime_map.get(bearing_case, ("Unknown bearing case.", "danger"))
+        banner_text, banner_kind = regime_map.get(bearing.case, ("Unknown bearing case.", "danger"))
         banner_cls = "rec-card" if banner_kind == "info" else "danger-card"
         st.markdown(f"<div class='{banner_cls}'>{banner_text}</div>", unsafe_allow_html=True)
 
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**Peak bearing pressure (Actual):**")
-            if bearing_case == "full":
-                st.markdown(f"$$ f_{{p,max}} = \\frac{{P_u}}{{BN}}\\left(1 + \\frac{{6e}}{{N}}\\right) = {f_p_peak:.2f} \\text{{ MPa}} $$")
-                st.caption(f"Tension-side edge: $f_{{p,min}} = {f_p_min:.2f}$ MPa")
-            elif bearing_case == "partial":
-                st.markdown(f"$Y = 1.5N - 3e = 1.5({N:.0f}) - 3({ecc:.0f}) = $ **{Y_bearing:.1f} mm** (bearing length)")
-                st.markdown(f"$$ f_{{p,peak}} = \\frac{{2P_u}}{{B \\cdot Y}} = {f_p_peak:.2f} \\text{{ MPa}} $$")
+            if bearing.case == "full":
+                st.markdown(f"$$ f_{{p,max}} = \\frac{{P_u}}{{BN}}\\left(1 + \\frac{{6e}}{{N}}\\right) = {bearing.f_p_peak:.2f} \\text{{ MPa}} $$")
+                st.caption(f"Tension-side edge: $f_{{p,min}} = {bearing.f_p_min:.2f}$ MPa")
+            elif bearing.case == "partial":
+                st.markdown(f"$Y = 1.5N - 3e = 1.5({N:.0f}) - 3({bearing.eccentricity:.0f}) = $ **{bearing.Y_bearing:.1f} mm** (bearing length)")
+                st.markdown(f"$$ f_{{p,peak}} = \\frac{{2P_u}}{{B \\cdot Y}} = {bearing.f_p_peak:.2f} \\text{{ MPa}} $$")
             else:
-                st.markdown(f"$$ f_{{p,peak}} = {f_p_peak:.2f} \\text{{ MPa}} \\; (\\text{{capacity used as governing value}}) $$")
+                st.markdown(f"$$ f_{{p,peak}} = {bearing.f_p_peak:.2f} \\text{{ MPa}} \\; (\\text{{capacity used as governing value}}) $$")
         with c2:
             st.markdown("**Max bearing capacity (Capacity):**")
             st.markdown(f"$$ \\phi_c f_{{p,max}} = 0.65 (0.85 f_c') = {f_p_max:.2f} \\text{{ MPa}} $$")
 
-        if bearing_ok:
-            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Status:** Concrete bearing is adequate ($f_{{p,peak}} = {f_p_peak:.2f} \\le \\phi_c f_{{p,max}} = {f_p_max:.2f}$)")
+        if bearing.ok:
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;✔️ **Status:** Concrete bearing is adequate ($f_{{p,peak}} = {bearing.f_p_peak:.2f} \\le \\phi_c f_{{p,max}} = {f_p_max:.2f}$)")
         else:
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;❌ **Status:** Concrete bearing exceeded — enlarge the plate (B, N) or increase $f'_c$")
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 2: Calculate required plate thickness (Required Thickness)")
-        
+
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**🔹 ฝั่งรับแรงกด (Compression Side Check):**")
             st.markdown(f"- ระยะยื่น Cantilever ($m$) = {m_arm:.1f} mm")
             st.markdown(f"- ระยะยื่น Cantilever ($n$) = {n_arm:.1f} mm")
             st.markdown(f"$$ t_{{req,comp}} = \\max(m,n) \\sqrt{{\\frac{{2 f_p}}{{0.90 F_y}}}} = {t_req_compression:.2f} \\text{{ mm}} $$")
-            
+
         with c2:
             st.markdown("**🔸 ฝั่งรับแรงดึง (Tension Side Check):**")
             if max_t_actual > 0 and f_arm > 0:
@@ -580,7 +405,7 @@ with tab_plate:
                 st.markdown(f"$$ t_{{req,tens}} = \\sqrt{{\\frac{{4 (T_{{u,max}} \\cdot f_{{arm}})}}{{0.90 F_y b_{{eff}}}}}} = {t_req_tension:.2f} \\text{{ mm}} $$")
             else:
                 st.markdown("<div style='color: gray; padding-top: 10px;'>ไม่มีแรงดึงเกิดขึ้นในสลักเกลียว หรือไม่มีโบลต์อยู่นอกแนวปีกเสา (ไม่ต้องคำนวณหนาฝั่งดึง)</div>", unsafe_allow_html=True)
-        
+
         st.divider()
         st.markdown(f"**สรุปความหนาที่ควบคุมการออกแบบ:** $t_{{req}} = \\max({t_req_compression:.2f}, {t_req_tension:.2f}) = \\textbf{{{t_req:.2f} mm}}$")
 
@@ -595,7 +420,7 @@ with tab_bolt:
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 1: Force distribution to the bolts (Bolt Demands)")
-        bolt_group_I_label = f"Bolt-group moment of inertia about the X-axis ($I_y$) = **{I_y_group:,.0f} mm²** (reference only)"
+        bolt_group_I_label = f"Bolt-group moment of inertia about the X-axis ($I_x$) = **{I_x_group:,.0f} mm²** (reference only)"
 
         if bolt_case == "bearing-only":
             st.markdown(bolt_group_I_label)
@@ -605,9 +430,9 @@ with tab_bolt:
             )
             st.markdown(f"$$ T_{{u,max}} = 0.00 \\text{{ kN}} \\qquad V_{{u,bolt}} = \\frac{{V_u}}{{N_{{bolt}}}} = {max_v_actual:.2f} \\text{{ kN}} $$")
 
-        elif bolt_case == "uplift" and bolt_sol["ok"]:
-            Y_b = bolt_sol["Y"]; C_b = bolt_sol["C"]; k_b = bolt_sol["k"]
-            y_NA_b = bolt_sol["y_NA"]; T_tot = bolt_sol["total_T_kN"]
+        elif bolt_case == "uplift" and bolt_sol.ok:
+            Y_b, C_b, k_b = bolt_sol.Y, bolt_sol.C, bolt_sol.k
+            y_NA_b, T_tot = bolt_sol.y_NA, bolt_sol.total_T_kN
             st.markdown(
                 "Bearing alone **cannot** equilibrate the load ($e > N/2$). A uniform bearing block "
                 f"of stress $\\phi_c 0.85 f'_c = {f_p_max:.2f}$ MPa forms over length $Y$ at the "
@@ -633,11 +458,11 @@ with tab_bolt:
                 f"**Critical tension:** $T_{{u,max}} = $ **{max_t_actual:.2f} kN** &nbsp;|&nbsp; "
                 f"**Shear per bolt:** $V_{{u,bolt}} = V_u/N_{{bolt}} = $ **{max_v_actual:.2f} kN**"
             )
-            st.caption(f"Equilibrium check: ΣF residual = {bolt_sol['resid_F']:.2e} N, ΣM residual = {bolt_sol['resid_M']:.2e} N·mm (≈0 confirms consistency)")
+            st.caption(f"Equilibrium check: ΣF residual = {bolt_sol.resid_F:.2e} N, ΣM residual = {bolt_sol.resid_M:.2e} N·mm (≈0 confirms consistency)")
 
         else:
             st.markdown(bolt_group_I_label)
-            st.markdown(f"<div class='danger-card'>⚠️ <b>Bearing-block solver:</b> {bolt_sol.get('reason','could not converge')} — bolt tensions not available; revise the connection.</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='danger-card'>⚠️ <b>Bearing-block solver:</b> {bolt_sol.reason or 'could not converge'} — bolt tensions not available; revise the connection.</div>", unsafe_allow_html=True)
 
     with st.container(border=True):
         st.markdown("##### 📌 Step 2: Bolt capacities (Steel Bolt Capacities)")
@@ -653,36 +478,34 @@ with tab_bolt:
     with st.container(border=True):
         st.markdown("##### 📌 Step 3: Combined tension + shear interaction (AISC J3.7)")
         st.caption("When a bolt resists both tension and shear at the same time, its tensile capacity is reduced.")
-        st.markdown(f"Required shear stress $f_{{rv}} = V_{{u,bolt}}/A_b = {max_v_actual*1000.0:.0f}/{A_b:.0f} = $ **{f_rv:.1f} MPa**")
-        st.markdown(f"$$ F'_{{nt}} = 1.3 F_{{nt}} - \\frac{{F_{{nt}}}}{{\\phi F_{{nv}}}} f_{{rv}} = 1.3({F_nt_b:.0f}) - \\frac{{{F_nt_b:.0f}}}{{0.75({F_nv_b:.0f})}}({f_rv:.1f}) = {F_nt_prime:.1f} \\text{{ MPa}} \\le F_{{nt}} $$")
+        st.markdown(f"Required shear stress $f_{{rv}} = V_{{u,bolt}}/A_b = {max_v_actual*1000.0:.0f}/{bolt_profile['area']:.0f} = $ **{f_rv:.1f} MPa**")
+        st.markdown(f"$$ F'_{{nt}} = 1.3 F_{{nt}} - \\frac{{F_{{nt}}}}{{\\phi F_{{nv}}}} f_{{rv}} = 1.3({bolt_profile['F_nt']:.0f}) - \\frac{{{bolt_profile['F_nt']:.0f}}}{{0.75({bolt_profile['F_nv']:.0f})}}({f_rv:.1f}) = {F_nt_prime:.1f} \\text{{ MPa}} \\le F_{{nt}} $$")
         st.markdown(f"**Reduced tension capacity:** $\\phi R'_{{nt}} = 0.75 F'_{{nt}} A_b = $ **{bolt_t_cap_int:.2f} kN**")
         st.markdown(f"Critical tension demand $T_{{u,max}} =$ **{max_t_actual:.2f} kN** → "
-                    f"($T_{{u,max}} / \\phi R'_{{nt}} =$ **{max_t_actual/bolt_t_cap_int:.2f}**)")
+                    f"($T_{{u,max}} / \\phi R'_{{nt}} =$ **{(max_t_actual/bolt_t_cap_int if bolt_t_cap_int > 0 else float('inf')):.2f}**)")
 
-    # --- เช็กกำลังคอนกรีตที่เพิ่มเข้ามาใหม่ ---
     conc_results = check_concrete_capacities(fc_mpa, h_ef, c_edge, d_b)
-    phi_N_cb = conc_results["phi_N_cb"]
-    phi_N_pn = conc_results["phi_N_pn"]
-    
+    phi_N_cb = conc_results.phi_N_cb
+    phi_N_pn = conc_results.phi_N_pn
+
     with st.container(border=True):
         st.markdown("##### 📌 Step 4: Concrete Anchor Failure Modes (ACI 318)")
         st.caption("ตรวจสอบพฤติกรรมการหลุดและรูดของฝังในคอนกรีตเพื่อความปลอดภัย")
-        
+
         st.markdown(f"- **Concrete Breakout Capacity (φN_cb):** **{phi_N_cb:.2f} kN**")
         st.markdown(f"- **Concrete Pullout Capacity (φN_pn):** **{phi_N_pn:.2f} kN**")
         st.markdown(f"- **Steel Tension Capacity (φR'nt):** **{bolt_t_cap_int:.2f} kN**")
-        
+
         capacities = {
             "Steel Bolt Rupture (เหล็กโบลต์ขาด)": bolt_t_cap_int,
             "Concrete Breakout (คอนกรีตแตกกระเทาะ)": phi_N_cb,
-            "Anchor Pullout (โบลต์รูดหลุด)": phi_N_pn
+            "Anchor Pullout (โบลต์รูดหลุด)": phi_N_pn,
         }
         governing_mode = min(capacities, key=capacities.get)
         min_cap = capacities[governing_mode]
-        
+
         st.info(f"💡 **Governing Failure Mode:** จุดที่จะวิบัติก่อนคือ **{governing_mode}** ที่แรงดึง **{min_cap:.2f} kN**")
 
-    # ปรับปรุงเงื่อนไขการสรุปผล (Result Summary)
     t_pass = max_t_actual <= bolt_t_cap_int
     concrete_pass = max_t_actual <= min(phi_N_cb, phi_N_pn)
     v_pass = max_v_actual <= bolt_v_cap
@@ -691,8 +514,11 @@ with tab_bolt:
         st.markdown("<div class='rec-card'>✅ <b>PASS:</b> โบลต์และฐานรากคอนกรีตสามารถรับแรงดึง-แรงเฉือนได้อย่างปลอดภัย</div>", unsafe_allow_html=True)
     else:
         errors = []
-        if not t_pass: errors.append(f"แรงดึงชิ้นงาน ({max_t_actual:.2f} kN) > กำลังเหล็กโบลต์ φR'nt ({bolt_t_cap_int:.2f} kN)")
-        if not concrete_pass: errors.append(f"แรงดึงชิ้นงาน ({max_t_actual:.2f} kN) > กำลังของคอนกรีต ({min(phi_N_cb, phi_N_pn):.2f} kN) — เสี่ยงเกิด Concrete Breakout/Pullout")
-        if not v_pass: errors.append(f"แรงเฉือนชิ้นงาน ({max_v_actual:.2f} kN) > กำลังรับแรงเฉือนเหล็ก φRnv ({bolt_v_cap:.2f} kN)")
+        if not t_pass:
+            errors.append(f"แรงดึงชิ้นงาน ({max_t_actual:.2f} kN) > กำลังเหล็กโบลต์ φR'nt ({bolt_t_cap_int:.2f} kN)")
+        if not concrete_pass:
+            errors.append(f"แรงดึงชิ้นงาน ({max_t_actual:.2f} kN) > กำลังของคอนกรีต ({min(phi_N_cb, phi_N_pn):.2f} kN) — เสี่ยงเกิด Concrete Breakout/Pullout")
+        if not v_pass:
+            errors.append(f"แรงเฉือนชิ้นงาน ({max_v_actual:.2f} kN) > กำลังรับแรงเฉือนเหล็ก φRnv ({bolt_v_cap:.2f} kN)")
         error_text = "<br>".join([f"- {e}" for e in errors])
         st.markdown(f"<div class='danger-card'>❌ <b>FAIL: จุดเชื่อมต่อไม่ปลอดภัย</b><br>{error_text}</div>", unsafe_allow_html=True)
